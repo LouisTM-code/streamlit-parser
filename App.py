@@ -1,4 +1,3 @@
-import argparse
 from Parse import WebParser
 from web_ui import StreamlitUI
 
