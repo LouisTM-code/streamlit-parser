@@ -61,11 +61,18 @@ class StreamlitUI:
         with st.expander("📁 Просмотр данных", expanded=True):
             st.dataframe(data, use_container_width=True, height=400)
         
+        # Создаем временный Excel файл в памяти
+        from io import BytesIO
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            data.to_excel(writer, index=False, sheet_name='Products')
+            writer.close()
+        
         st.download_button(
             label="💾 Скачать Excel",
-            data=data.to_csv(index=False).encode('utf-8-sig'),
+            data=output.getvalue(),
             file_name=filename,
-            mime='text/csv',
+            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             use_container_width=True
         )
 
