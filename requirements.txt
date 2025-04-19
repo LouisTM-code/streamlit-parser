@@ -1,0 +1,7 @@
+streamlit
+time
+typing
+pandas
+beautifulsoup4
+logging
+requests
