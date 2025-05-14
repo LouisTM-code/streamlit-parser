@@ -1,9 +1,14 @@
 # ui/web_ui.py
 import streamlit as st
 import time
-from typing import Optional, Tuple
-from Parse import WebParser
+from io import BytesIO
+from typing import Any, Dict, List, Optional, Tuple
+
 import pandas as pd
+
+from Parse import WebParser
+from product_list_parser import ProductListParser
+
 
 class StreamlitUI:
     def __init__(self, parser: WebParser):
@@ -11,29 +16,84 @@ class StreamlitUI:
         self._setup_page_config()
         self.progress_bar = None
         self.status_text = None
+        self.stats_placeholder = None
 
-    def _setup_page_config(self):
+    # ------------------------------------------------------------------ #
+    #                        BASIC PAGE CONFIG                           #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _setup_page_config():
         st.set_page_config(
             page_title="Web Parser",
             layout="centered",
             page_icon="🔍",
-            initial_sidebar_state="expanded"
+            initial_sidebar_state="expanded",
         )
 
+    # ------------------------------------------------------------------ #
+    #                        SIDEBAR / TABS                              #
+    # ------------------------------------------------------------------ #
     def render_sidebar(self) -> Optional[dict]:
-        """Отрисовка боковой панели с настройками"""
+        """Отрисовка боковой панели с двумя вкладками:
+        1. Стартовый парсер  (старый функционал)
+        2. ProductListParser (массовый парсинг списка ссылок)
+        """
         with st.sidebar:
-            st.title("⚙️ Управление парсером")
-            url = st.text_input("Стартовый URL", "https://example.com")
-            output_file = st.text_input("Имя файла", "products.xlsx")
-            
-            if st.button("🚀 Начать парсинг", use_container_width=True):
-                return {"url": url, "output": output_file}
-            
+            st.title("⚙️ Управление парсером")
+            tab_start, tab_list = st.tabs(["Парсинг Характеристик", "Парсинг Каталога"])
+
+            params: Optional[dict] = None
+
+            # ---------- Вкладка 1 – Стартовый парсер ------------------- #
+            with tab_start:
+                url = st.text_input(
+                    "Стартовый URL", "https://example.com", key="start_url"
+                )
+                output_file = st.text_input(
+                    "Имя файла", "products.xlsx", key="start_output"
+                )
+                if st.button(
+                    "🚀 Начать парсинг", key="start_button", use_container_width=True
+                ):
+                    params = {
+                        "mode": "start",
+                        "url": url,
+                        "output": output_file,
+                    }
+
+            # ---------- Вкладка 2 – ProductListParser ------------------ #
+            with tab_list:
+                links_text = st.text_area(
+                    "Ссылки (по одной на строке)",
+                    height=200,
+                    placeholder="https://example.com/product/123",
+                    key="links_input",
+                )
+                output_file_links = st.text_input(
+                    "Имя файла",
+                    "product_list.xlsx",
+                    key="links_output",
+                )
+                if st.button(
+                    "🚀 Запустить",
+                    key="list_button",
+                    use_container_width=True,
+                ):
+                    raw_links = [ln for ln in links_text.splitlines() if ln.strip()]
+                    params = {
+                        "mode": "productlist",
+                        "links": raw_links,
+                        "output": output_file_links,
+                    }
+
             st.markdown("---")
             self.stats_placeholder = st.empty()
-        return None
 
+        return params
+
+    # ------------------------------------------------------------------ #
+    #                       COMMON PROGRESS HELPERS                      #
+    # ------------------------------------------------------------------ #
     def _init_progress(self):
         """Инициализация элементов прогресса"""
         self.progress_bar = st.progress(0)
@@ -42,97 +102,197 @@ class StreamlitUI:
 
     def _update_progress(self, value: float, status: str):
         """Обновление индикатора прогресса"""
-        self.progress_bar.progress(value)
+        self.progress_bar.progress(int(value))
         self.status_text.markdown(f"**Статус:** {status}")
-        
+
     def _show_stats(self, total: int, processed: int):
         """Отображение статистики"""
-        self.stats_placeholder.markdown(f"""
-        ### 📊 Прогресс
-        - Всего товаров: **{total}**
+        self.stats_placeholder.markdown(
+            f"""
+        ### 📊 Прогресс
+        - Всего: **{total}**
         - Обработано: **{processed}**
         - Осталось: **{total - processed}**
-        """)
-
-    def render_results(self, data: pd.DataFrame, filename: str):
-        """Отрисовка результатов парсинга"""
-        st.success("✅ Парсинг успешно завершен!")
-        
-        with st.expander("📁 Просмотр данных", expanded=True):
-            st.dataframe(data, use_container_width=True, height=400)
-        
-        # Создаем временный Excel файл в памяти
-        from io import BytesIO
-        output = BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            data.to_excel(writer, index=False, sheet_name='Products')
-            writer.close()
-        
-        st.download_button(
-            label="💾 Скачать Excel",
-            data=output.getvalue(),
-            file_name=filename,
-            mime='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            use_container_width=True
+        """
         )
 
-    def run(self):
-        """Основной цикл интерфейса"""
-        st.title("🔍 Web Parser")
-        
-        params = self.render_sidebar()
-        if params:
-            self._init_progress()
-            try:
-                result = self._run_parsing(params)
-                if result is not None:
-                    self.render_results(*result)
-            except Exception as e:
-                st.error(f"⛔ Ошибка: {str(e)}")
-            finally:
-                time.sleep(0.5)
-                self.progress_bar.empty()
-                self.status_text.empty()
+    # ------------------------------------------------------------------ #
+    #                   RENDER RESULTS :  START PARSER                   #
+    # ------------------------------------------------------------------ #
+    def render_results(self, data: pd.DataFrame, filename: str):
+        """Отрисовка результатов парсинга (старый режим)"""
+        st.success("✅ Парсинг успешно завершен!")
 
+        with st.expander("📁 Просмотр данных", expanded=True):
+            st.dataframe(data, use_container_width=True, height=400)
+
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+            data.to_excel(writer, index=False, sheet_name="Products")
+
+        st.download_button(
+            label="💾 Скачать Excel",
+            data=output.getvalue(),
+            file_name=filename,
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            use_container_width=True,
+        )
+
+    # ------------------------------------------------------------------ #
+    #               RENDER RESULTS :  PRODUCT LIST PARSER                #
+    # ------------------------------------------------------------------ #
+    def render_product_list_results(
+        self,
+        stats: Dict[str, Any],
+        excel_content: bytes,
+        filename: str,
+    ):
+        """Выводит сводную статистику + кнопку скачивания Excel с несколькими листами"""
+        st.success("✅ Обработка списка ссылок завершена!")
+        st.subheader("📊 Итоговая статистика")
+        st.markdown(
+            f"""
+        - Всего ссылок: **{stats['total']}**
+        - Успешно обработано: **{stats['success']}**
+        - Ошибок: **{stats['failed']}**
+        - Товаров собрано: **{stats['total_products']}**
+        """
+        )
+
+        if stats["failed"]:
+            with st.expander("⚠️ Ссылки с ошибками"):
+                st.write(stats["failed_links"])
+
+        # кнопка скачивания много-листового файла
+        st.download_button(
+            label="💾 Скачать Excel",
+            data=excel_content,
+            file_name=filename,
+            mime=(
+                "application/"
+                "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            ),
+            use_container_width=True,
+        )
+
+    # ------------------------------------------------------------------ #
+    #                             MAIN LOOP                              #
+    # ------------------------------------------------------------------ #
+    def run(self):
+        st.title("🔍 Web Parser")
+
+        params = self.render_sidebar()
+        if not params:
+            return
+
+        self._init_progress()
+        try:
+            if params["mode"] == "start":
+                result = self._run_parsing(params)
+                if result:
+                    self.render_results(*result)
+            else:  # mode == productlist
+                stats, excel_data, out_file = self._run_product_list(params)
+                self.render_product_list_results(stats, excel_data, out_file)
+        except Exception as exc:
+            st.error(f"⛔ Ошибка: {exc}")
+        finally:
+            time.sleep(0.5)
+            self.progress_bar.empty()
+            self.status_text.empty()
+
+    # ------------------------------------------------------------------ #
+    #                      ORIGINAL START‑PARSER FLOW                    #
+    # ------------------------------------------------------------------ #
     def _run_parsing(self, params: dict) -> Optional[Tuple[pd.DataFrame, str]]:
-        """Основной процесс парсинга"""
-        # Этап 1: Загрузка стартовой страницы
-        self._update_progress(5, "Загрузка стартовой страницы...")
-        start_page = self.parser.get_page(params['url'])
+        """Процесс парсинга для стартового URL (оригинальный режим)"""
+        self._update_progress(5, "Загрузка стартовой страницы…")
+        start_page = self.parser.get_page(params["url"])
         if not start_page:
             raise Exception("Не удалось загрузить стартовую страницу")
 
-        # Этап 2: Сбор ссылок
-        self._update_progress(15, "Поиск ссылок на товары...")
+        self._update_progress(15, "Поиск ссылок на товары…")
         links = self.parser.parse_links(start_page)
         if not links:
             raise Exception("Ссылки на товары не найдены")
-        
-        # Этап 3: Парсинг товаров
+
         total = len(links)
-        products = []
+        products: List[Dict[str, Any]] = []
+
         for idx, link in enumerate(links, 1):
             try:
-                # Обновление прогресса
                 progress = 15 + int(70 * (idx / total))
-                status = f"Обработка товара {idx}/{total}"
-                self._update_progress(progress, status)
+                self._update_progress(progress, f"Обработка товара {idx}/{total}")
                 self._show_stats(total, idx)
-                
-                # Парсинг страницы
+
                 with st.spinner(f"Обработка: {link.split('/')[-1]}"):
                     product_page = self.parser.get_page(link)
                     if product_page:
                         products.append(self.parser.parse_product(product_page))
-                        time.sleep(0.1)  # Имитация задержки
+                    time.sleep(0.1)  # имитация задержки
+            except Exception as ex:
+                st.warning(f"Пропущен товар {idx}: {ex}")
 
-            except Exception as e:
-                st.warning(f"Пропущен товар {idx}: {str(e)}")
-
-        # Этап 4: Сохранение результатов
-        self._update_progress(95, "Формирование отчёта...")
+        self._update_progress(95, "Формирование отчёта…")
         df = pd.DataFrame(products)
         if df.empty:
             raise Exception("Не удалось собрать данные")
-        
-        return df, params['output']
+
+        return df, params["output"]
+
+    # ------------------------------------------------------------------ #
+    #                 NEW FLOW  –  PRODUCT LIST PARSER                   #
+    # ------------------------------------------------------------------ #
+    def _run_product_list(
+        self, params: dict
+    ) -> Tuple[Dict[str, Any], bytes, str]:
+        """Обработка произвольного списка URL‑адресов"""
+        links: List[str] = params["links"]
+        total = len(links)
+        if total == 0:
+            raise Exception("Список ссылок пуст")
+
+        self._update_progress(5, "Инициализация ProductListParser…")
+        pl_parser = ProductListParser(
+            links=links, output_file=params["output"], base_parser=self.parser
+        )
+
+        failed_links: List[str] = []
+
+        # --- последовательно обрабатываем ссылки --------------------- #
+        for idx, link in enumerate(pl_parser.links, 1):
+            progress = 5 + int(85 * (idx / total))
+            self._update_progress(progress, f"Обработка {idx}/{total}")
+            self._show_stats(total, idx)
+
+            try:
+                soup = self.parser.get_page(link)
+                if not soup:
+                    failed_links.append(link)
+                    continue
+
+                products_in_page = pl_parser._parse_category_page(soup)
+
+                title = pl_parser._extract_page_title(soup)
+                sheet_name = pl_parser._make_unique_sheet_name(title)
+                pl_parser._sheet_data[sheet_name] = products_in_page
+
+            except Exception as ex:
+                st.warning(f"Пропущена ссылка {idx}: {ex}")
+                failed_links.append(link)
+
+        # --- финальная статистика ------------------------------------ #
+        stats = {
+            "total": total,
+            "success": total - len(failed_links),
+            "failed": len(failed_links),
+            "failed_links": failed_links,
+            "total_products": sum(len(v) for v in pl_parser._sheet_data.values()),
+        }
+
+        self._update_progress(95, "Формирование отчёта…")
+        excel_bytes = pl_parser.save_results()
+        return stats, excel_bytes, params["output"]
