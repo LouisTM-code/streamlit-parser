@@ -121,8 +121,13 @@ class ProductListParser:
     # ------------------------------------------------------------------ #
     @staticmethod
     def _clean_text(text: str) -> str:
-        """Удаляет множественные пробелы, \xa0 и &nbsp;."""
-        return " ".join(text.replace("\xa0", " ").replace("&nbsp;", " ").split()).strip()
+        """Удаляет множественные пробелы, \xa0, &nbsp; и префикс 'Бренд: '."""
+        cleaned = (
+            text.replace("\xa0", " ")
+                .replace("&nbsp;", " ")
+                .replace("Бренд: ", "")
+        )
+        return " ".join(cleaned.split()).strip()
 
     @staticmethod
     def _clean_price(text: str) -> str:
@@ -135,7 +140,7 @@ class ProductListParser:
     # ------------------------------------------------------------------ #
     def _extract_page_title(self, soup: BeautifulSoup) -> str:
         """Возвращает заголовок категории (текст <h1>)."""
-        tag = soup.select_one("div.ty-mainbox-container h1.ty-mainbox-title span")
+        tag = soup.select_one("h1.cnc-title-xl span")
         if not tag:
             tag = soup.find("h1")
         return self._clean_text(tag.get_text()) if tag else "Категория"
@@ -170,23 +175,25 @@ class ProductListParser:
     # ------------------------------------------------------------------ #
     def _extract_row_data_v1(self, row: Tag) -> Dict[str, str] | None:
         """Табличная верстка (v1)."""
-        name_td = row.find("td", class_="gr-title hidden_mobile")
+        name_td = row.find("div", class_="cnc-product-categories-mob-card__header")
         if not name_td or not name_td.a:
             return None
         name = self._clean_text(name_td.a.get_text())
 
-        brand_td = name_td.find_next_sibling("td")
+        brand_td = name_td.find("span", class_="cnc-product-categories-mob-card__brand")
         brand = self._clean_text(brand_td.get_text()) if brand_td else "Н/Д"
 
-        article_span = row.find("span", onclick=re.compile(r"copyCode\('\d+"))
+        article_span = row.find("span", class_="cnc-product-categories-mob-card__sku")
+        if article_span:
+            article_block=article_span.select_one("span.cnc-sku__product-code")
         article = (
-            f"119-{self._clean_text(article_span.get_text())}" if article_span else "Н/Д"
+            f"119-{self._clean_text(article_block.get_text())}" if article_block else "Н/Д"
         )
 
-        price_span = row.find("span", class_="ty-price-num")
+        price_span = row.find("div", class_="cnc-product-categories-mob-card__current-price")
         price = self._clean_price(price_span.get_text()) if price_span else "Н/Д"
 
-        avail_span = row.select_one("div.rg-available > span")
+        avail_span = row.find("span", class_="cnc-product-amount__product-quantity")
         availability = self._clean_text(avail_span.get_text()) if avail_span else "Н/Д"
 
         return {
@@ -201,26 +208,27 @@ class ProductListParser:
     #                         EXTRACTORS (v2)                            #
     # ------------------------------------------------------------------ #
     def _extract_row_data_v2(self, name_div: Tag) -> Dict[str, str] | None:
-        """Блочная верстка (v2). Принимает <div class="name_value_pc">."""
+        """Блочная верстка (v2). Принимает <div class="cnc-short-list-product">."""
         if not name_div or not name_div.a:
             return None
-        name = self._clean_text(name_div.a.get_text())
+        name_place = name_div.find_next("div", class_="cnc-short-list-product__info")
+        name = self._clean_text(name_place.a.get_text())
 
-        brand_block = name_div.find_next("div", class_="brand_list compact pc")
+        brand_block = name_div.find_next("div", class_="cnc-short-list-product__short-info")
         brand = "Н/Д"
         article = "Н/Д"
         if brand_block:
-            brand_link = brand_block.select_one("div.ty-features-list a")
+            brand_link = brand_block.select_one("div.cnc-short-list-product__brand-name")
             if brand_link:
                 brand = self._clean_text(brand_link.get_text())
-            span_article = brand_block.find("span", style=re.compile("cursor"))
+            span_article = brand_block.find("span", class_="cnc-sku__product-code")
             if span_article:
                 article = f"119-{self._clean_text(span_article.get_text())}"
 
-        price_span = name_div.find_next("span", class_="ty-price-num")
+        price_span = name_div.find_next("span", class_="ty-price")
         price = self._clean_price(price_span.get_text()) if price_span else "Н/Д"
 
-        avail_p = name_div.find_next("p", style=re.compile(r"margin:5px"))
+        avail_p = name_div.find_next("span", class_="cnc-product-amount__status")
         availability = "Н/Д"
         if avail_p:
             avail_span = avail_p.find("span")
@@ -243,7 +251,7 @@ class ProductListParser:
         products: List[Dict[str, str]] = []
 
         # --- v1 -------------------------------------------------------- #
-        rows = soup.select("tr")
+        rows = soup.select("div.cnc-product-categories-mob-card")
         for row in rows:
             data = self._extract_row_data_v1(row)
             if data:
@@ -252,7 +260,7 @@ class ProductListParser:
             return products
 
         # --- v2 -------------------------------------------------------- #
-        for name_div in soup.select("div.name_value_pc"):
+        for name_div in soup.select("div.cnc-short-list-product"):
             data = self._extract_row_data_v2(name_div)
             if data:
                 products.append(data)

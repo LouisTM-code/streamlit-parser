@@ -39,14 +39,14 @@ class WebParser:
         links = []
         
         # Первый вариант (оригинальный селектор)
-        for link in soup.select('td.gr-title.hidden_mobile a[href]'):
+        for link in soup.select('div.cnc-product-categories-mob-card__header a[href]'):
             href = link.get('href', '')
             if href.startswith('http'):
                 links.append(href)
                 logging.debug(f'Найдена ссылка (вариант 1): {href}')
         
         # Второй вариант (новый селектор)
-        for link in soup.select('div.name_value_pc a[href]'):
+        for link in soup.select('div.cnc-short-list-product a[href]'):
             href = link.get('href', '')
             if href.startswith('http'):
                 links.append(href)
