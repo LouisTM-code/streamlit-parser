@@ -82,39 +82,92 @@ class ProductListParser:
         return cleaned
 
     # ------------------------------------------------------------------ #
-    #            Валидация URL + добавление items_per_page=3000           #
+    #            Валидация URL         #
     # ------------------------------------------------------------------ #
     def _validate_links(self) -> None:
-        """
-        Проверяет корректность URL и приводит каждую ссылку к виду,
-        где параметр `items_per_page` гарантированно равен 3000.
-        """
-        if not self.links:
-            raise ValueError(
-                "Список ссылок пуст или содержит только невалидные элементы."
-            )
+            """
+            Проверяет корректность URL и приводит каждую ссылку к нормализованному виду,
+            НЕ навязывая items_per_page. Параметры запроса сохраняются как есть.
+            Дополнительная нормализация под пагинацию выполняется в _normalize_to_first_page().
+            """
+            if not self.links:
+                raise ValueError(
+                    "Список ссылок пуст или содержит только невалидные элементы."
+                )
 
-        url_re = re.compile(r"^https?://[\w\-.:/?#=&%~+]+$", re.IGNORECASE)
-        invalid: List[str] = []
-        processed: List[str] = []
+            url_re = re.compile(r"^https?://[\w\-.:/?#=&%~+]+$", re.IGNORECASE)
+            invalid: List[str] = []
+            processed: List[str] = []
 
-        for url in self.links:
-            if not url_re.match(url):
-                invalid.append(url)
-                continue
+            for url in self.links:
+                if not url_re.match(url):
+                    invalid.append(url)
+                    continue
 
+                # Сохраняем URL без принудительных правок query; только пересобираем обратно
+                parsed = urlparse(url)
+                new_url = urlunparse(parsed)
+                processed.append(new_url)
+
+            if invalid:
+                raise ValueError("Обнаружены некорректные URL: " + ", ".join(invalid))
+
+            self.links = processed  # сохраняем нормализованные ссылки без вмешательства в query
+
+    # ------------------------------------------------------------------ #
+    #                   НОРМАЛИЗАЦИЯ И ПАГИНАЦИЯ                         #
+    # ------------------------------------------------------------------ #
+    @staticmethod
+    def _normalize_to_first_page(url: str) -> str:
+            """
+            Приводит URL категории к виду: .../page-1/?items_per_page=48
+            - удаляет завершающий сегмент /page-N/ если присутствует
+            - гарантирует завершающий '/'
+            - устанавливает items_per_page=48 (сохраняя прочие query-параметры)
+            """
             parsed = urlparse(url)
-            query_dict = dict(parse_qsl(parsed.query, keep_blank_values=True))
-            query_dict["items_per_page"] = "3000"  # всегда 3000
+            path = parsed.path or "/"
+            # Удаляем конечный сегмент /page-N/ (если был передан)
+            path = re.sub(r"/page-\d+/?$", "/", path)
+            # Нормализуем завершающий '/'
+            if not path.endswith("/"):
+                path = path + "/"
+            # Добавляем page-1/
+            if not re.search(r"/page-1/+$", path):
+                path = path + "page-1/"
+            # Обновляем query: items_per_page=48
+            q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+            q["items_per_page"] = "48"
+            new_query = urlencode(q, doseq=True)
+            return urlunparse(parsed._replace(path=path, query=new_query))
 
-            new_query = urlencode(query_dict, doseq=True)
-            new_url = urlunparse(parsed._replace(query=new_query))
-            processed.append(new_url)
+    def _iter_paginated_pages(self, base_url: str):
+            """
+            Генератор страниц категории.
+            На каждой итерации загружает страницу и yield'ит кортеж (page_index, page_url, soup).
+            Останавливается, когда на странице отсутствует div.cnc-pagination__show-more.
+            """
+            url = self._normalize_to_first_page(base_url)
+            page = 1
+            while True:
+                self.logger.info("Загружаем страницу %d: %s", page, url)
+                soup = self.parser.get_page(url)
+                if not soup:
+                    self.logger.warning("Ошибка загрузки страницы %d: %s", page, url)
+                    return  # прекращаем обход этой категории
 
-        if invalid:
-            raise ValueError("Обнаружены некорректные URL: " + ", ".join(invalid))
+                yield page, url, soup
 
-        self.links = processed  # сохраняем «доработанные» ссылки
+                # если есть блок "показать ещё" — есть следующая страница
+                show_more = soup.select_one("div.cnc-pagination__show-more")
+                if not show_more:
+                    return
+
+                page += 1
+                parsed = urlparse(url)
+                next_path = re.sub(r"/page-\d+/", f"/page-{page}/", parsed.path)
+                url = urlunparse(parsed._replace(path=next_path))
+
 
     # ------------------------------------------------------------------ #
     #                        PRIVATE HELPERS                              #
@@ -194,6 +247,8 @@ class ProductListParser:
         price = self._clean_price(price_span.get_text()) if price_span else "Н/Д"
 
         avail_span = row.find("span", class_="cnc-product-amount__product-quantity")
+        if not avail_span:
+            avail_span = row.find("span", class_="cnc-product-amount__status")
         availability = self._clean_text(avail_span.get_text()) if avail_span else "Н/Д"
 
         return {
@@ -270,46 +325,54 @@ class ProductListParser:
     #                      Основной метод run()                          #
     # ------------------------------------------------------------------ #
     def run(self) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """
-        Обходит все ссылки, аккумулируя товары и статистику.
-        (Метод сохранён для совместимости; структура листов
-         формируется параллельно в self._sheet_data.)
-        """
-        all_products: List[Dict[str, Any]] = []
-        failed_links: List[str] = []
-        success_pages = 0
+            """
+            Обходит все ВХОДНЫЕ ссылки категорий.
+            Для каждой ссылки последовательно загружает /page-1/, /page-2/, ...
+            пока на странице присутствует div.cnc-pagination__show-more.
+            Все страницы одной категории агрегируются в ОДИН лист Excel.
+            """
+            all_products: List[Dict[str, Any]] = []
+            failed_links: List[str] = []
+            success_categories = 0
 
-        for url in self.links:
-            self.logger.info("Загружаем: %s", url)
-            soup = self.parser.get_page(url)
-            if not soup:
-                self.logger.warning("Ошибка загрузки: %s", url)
-                failed_links.append(url)
-                continue
+            for base_url in self.links:
+                category_rows: List[Dict[str, Any]] = []
+                first_title: str | None = None
+                success_any_page = False
 
-            products = self._parse_category_page(soup)
-            self.logger.info("\u2514— товаров: %d", len(products))
-            all_products.extend(products)
-            success_pages += 1
+                for page_index, page_url, soup in self._iter_paginated_pages(base_url):
+                    if first_title is None:
+                        first_title = self._extract_page_title(soup)
 
-            # ----------------  подготовка листа ----------------------- #
-            title = self._extract_page_title(soup)
-            sheet_name = self._make_unique_sheet_name(title)
-            self._sheet_data[sheet_name] = products
+                    products = self._parse_category_page(soup)
+                    self.logger.info("  └— товаров на странице %d: %d", page_index, len(products))
+                    category_rows.extend(products)
+                    all_products.extend(products)
+                    success_any_page = True
 
-        stats = {
-            "total": len(self.links),
-            "success": success_pages,
-            "failed": len(failed_links),
-            "failed_links": failed_links,
-            "total_products": len(all_products),
-        }
-        self.logger.info(
-            "Итого | категорий: %(total)d | успех: %(success)d "
-            "| ошибок: %(failed)d | товаров: %(total_products)d",
-            stats,
-        )
-        return all_products, stats
+                if success_any_page:
+                    # один лист на весь URL категории
+                    title_for_sheet = first_title or base_url
+                    sheet_name = self._make_unique_sheet_name(title_for_sheet)
+                    self._sheet_data[sheet_name] = category_rows
+                    success_categories += 1
+                else:
+                    failed_links.append(base_url)
+
+            stats = {
+                "total": len(self.links),
+                "success": success_categories,   # успешно обработанные категории (URL)
+                "failed": len(failed_links),
+                "failed_links": failed_links,
+                "total_products": len(all_products),
+            }
+            self.logger.info(
+                "Итого | категорий: %(total)d | успех: %(success)d "
+                "| ошибок: %(failed)d | товаров: %(total_products)d",
+                stats,
+            )
+            return all_products, stats
+
 
     # ------------------------------------------------------------------ #
     #                   Сохранение результата в Excel                    #

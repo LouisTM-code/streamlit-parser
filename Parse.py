@@ -3,6 +3,9 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import logging
 from typing import Optional, List, Dict
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode  # [+] для нормализации URL
+import re  # [+] для работы с /page-N/
+
 
 class WebParser:
     def __init__(self):
@@ -141,3 +144,82 @@ class WebParser:
             logging.info(f'Файл {filename} сохранён ({len(df.columns)} столбцов)')
         except Exception as e:
             logging.error(f'Ошибка сохранения: {str(e)}')
+
+    @staticmethod
+    def _normalize_to_first_page(url: str) -> str:
+        """
+        Приводит URL категории к виду: .../page-1/?items_per_page=48
+        - удаляет завершающий сегмент /page-N/ если присутствует
+        - гарантирует завершающий '/'
+        - устанавливает items_per_page=48 (прочие query сохраняются)
+        """
+        parsed = urlparse(url)
+        path = parsed.path or "/"
+
+        # Удаляем конечный сегмент /page-N/ при наличии
+        path = re.sub(r"/page-\d+/?$", "/", path)
+
+        # Гарантируем завершающий '/'
+        if not path.endswith("/"):
+            path = path + "/"
+
+        # Добавляем /page-1/ если его нет
+        if not re.search(r"/page-1/+$", path):
+            path = path + "page-1/"
+
+        # Обновляем query: items_per_page=48
+        q = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        q["items_per_page"] = "48"
+
+        new_query = urlencode(q, doseq=True)
+        return urlunparse(parsed._replace(path=path, query=new_query))
+
+    def _iter_paginated_pages(self, base_url: str):
+        """
+        Генератор страниц категории.
+        На каждой итерации возвращает (page_index, page_url, soup).
+        Останавливается, когда на странице НЕТ div.cnc-pagination__show-more.
+        При ошибке загрузки текущей страницы прекращает обход категории.
+        """
+        url = self._normalize_to_first_page(base_url)
+        page = 1
+        while True:
+            logging.info(f"Загружаем страницу {page}: {url}")
+            soup = self.get_page(url)
+            if not soup:
+                logging.warning(f"Ошибка загрузки страницы {page}: {url}")
+                return  # прекращаем обход категории
+
+            yield page, url, soup
+
+            # На последней странице блока "показать ещё" нет
+            show_more = soup.select_one("div.cnc-pagination__show-more")
+            if not show_more:
+                return
+
+            page += 1
+            parsed = urlparse(url)
+            next_path = re.sub(r"/page-\d+/", f"/page-{page}/", parsed.path)
+            url = urlunparse(parsed._replace(path=next_path))
+
+
+    def iter_category_product_links(self, base_url: str) -> List[str]:
+        """
+        Возвращает все ссылки на товары из категории, обходя /page-1/, /page-2/, ...
+        На каждой странице использует существующий parse_links(soup).
+        Дубликаты убираются с сохранением порядка.
+        """
+        all_links: List[str] = []
+        seen = set()
+
+        for page_index, page_url, soup in self._iter_paginated_pages(base_url):
+            page_links = self.parse_links(soup)
+            logging.info(f"  └— ссылок на странице {page_index}: {len(page_links)}")
+            for href in page_links:
+                if href not in seen:
+                    seen.add(href)
+                    all_links.append(href)
+
+        logging.info(f"Итого ссылок в категории: {len(all_links)}")
+        return all_links
+

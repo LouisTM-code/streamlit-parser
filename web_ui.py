@@ -53,7 +53,7 @@ class StreamlitUI:
                     "Имя файла", "products.xlsx", key="start_output"
                 )
                 if st.button(
-                    "🚀 Начать парсинг", key="start_button", use_container_width=True
+                    "🚀 Начать парсинг", key="start_button", width='stretch'
                 ):
                     params = {
                         "mode": "start",
@@ -77,7 +77,7 @@ class StreamlitUI:
                 if st.button(
                     "🚀 Запустить",
                     key="list_button",
-                    use_container_width=True,
+                    width='stretch',
                 ):
                     raw_links = [ln for ln in links_text.splitlines() if ln.strip()]
                     params = {
@@ -124,7 +124,7 @@ class StreamlitUI:
         st.success("✅ Парсинг успешно завершен!")
 
         with st.expander("📁 Просмотр данных", expanded=True):
-            st.dataframe(data, use_container_width=True, height=400)
+            st.dataframe(data, width='stretch', height=400)
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
@@ -138,7 +138,7 @@ class StreamlitUI:
                 "application/"
                 "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
-            use_container_width=True,
+            width='stretch',
         )
 
     # ------------------------------------------------------------------ #
@@ -175,7 +175,7 @@ class StreamlitUI:
                 "application/"
                 "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
             ),
-            use_container_width=True,
+            width='stretch',
         )
 
     # ------------------------------------------------------------------ #
@@ -209,16 +209,11 @@ class StreamlitUI:
     # ------------------------------------------------------------------ #
     def _run_parsing(self, params: dict) -> Optional[Tuple[pd.DataFrame, str]]:
         """Процесс парсинга для стартового URL (оригинальный режим)"""
-        self._update_progress(5, "Загрузка стартовой страницы…")
-        start_page = self.parser.get_page(params["url"])
-        if not start_page:
-            raise Exception("Не удалось загрузить стартовую страницу")
-
-        self._update_progress(15, "Поиск ссылок на товары…")
-        links = self.parser.parse_links(start_page)
+        links = self.parser.iter_category_product_links(params["url"])
         if not links:
             raise Exception("Ссылки на товары не найдены")
 
+        self._update_progress(15, "Поиск ссылок на товары…")
         total = len(links)
         products: List[Dict[str, Any]] = []
 
@@ -249,7 +244,7 @@ class StreamlitUI:
     def _run_product_list(
         self, params: dict
     ) -> Tuple[Dict[str, Any], bytes, str]:
-        """Обработка произвольного списка URL‑адресов"""
+        """Обработка произвольного списка URL-адресов (агрегация страниц в одном листе на URL)"""
         links: List[str] = params["links"]
         total = len(links)
         if total == 0:
@@ -260,39 +255,11 @@ class StreamlitUI:
             links=links, output_file=params["output"], base_parser=self.parser
         )
 
-        failed_links: List[str] = []
-
-        # --- последовательно обрабатываем ссылки --------------------- #
-        for idx, link in enumerate(pl_parser.links, 1):
-            progress = 5 + int(85 * (idx / total))
-            self._update_progress(progress, f"Обработка {idx}/{total}")
-            self._show_stats(total, idx)
-
-            try:
-                soup = self.parser.get_page(link)
-                if not soup:
-                    failed_links.append(link)
-                    continue
-
-                products_in_page = pl_parser._parse_category_page(soup)
-
-                title = pl_parser._extract_page_title(soup)
-                sheet_name = pl_parser._make_unique_sheet_name(title)
-                pl_parser._sheet_data[sheet_name] = products_in_page
-
-            except Exception as ex:
-                st.warning(f"Пропущена ссылка {idx}: {ex}")
-                failed_links.append(link)
-
-        # --- финальная статистика ------------------------------------ #
-        stats = {
-            "total": total,
-            "success": total - len(failed_links),
-            "failed": len(failed_links),
-            "failed_links": failed_links,
-            "total_products": sum(len(v) for v in pl_parser._sheet_data.values()),
-        }
+        # весь обход /page-N/ и сбор строк — внутри ProductListParser.run()
+        self._update_progress(20, "Сканирование страниц и сбор данных…")
+        _, stats = pl_parser.run()
 
         self._update_progress(95, "Формирование отчёта…")
         excel_bytes = pl_parser.save_results()
         return stats, excel_bytes, params["output"]
+
