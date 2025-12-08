@@ -3,8 +3,8 @@ from bs4 import BeautifulSoup
 import pandas as pd
 import logging
 from typing import Optional, List, Dict
-from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode  # [+] для нормализации URL
-import re  # [+] для работы с /page-N/
+from urllib.parse import urlparse, urlunparse, parse_qsl, urlencode
+import re 
 
 
 class WebParser:
