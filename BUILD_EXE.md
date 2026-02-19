@@ -1,23 +1,9 @@
 # Сборка проекта в `.exe`
 
-## Рекомендуемая команда
+Используйте эту команду из корня проекта (Windows, `cmd`/PowerShell):
 
 ```bash
-pyinstaller --noconfirm --clean --onefile --name streamlit-parser --collect-all streamlit --collect-all pandas --collect-all bs4 --collect-all xlsxwriter run_streamlit_app.py
+pyinstaller --noconfirm --clean --onefile --name streamlit-parser --add-data "App.py;." --add-data "Parse.py;." --add-data "product_list_parser.py;." --add-data "web_ui.py;." --collect-all streamlit --collect-all pandas --collect-all bs4 --collect-all xlsxwriter run_streamlit_app.py
 ```
 
-## Почему именно так
-
-- `run_streamlit_app.py` запускает приложение через `streamlit run App.py`, поэтому функционал UI и текущая логика не ломаются.
-- `--collect-all ...` подтягивает ресурсы и метаданные библиотек, которые часто теряются при упаковке Streamlit-приложений.
-- `--onefile` собирает единый исполняемый файл.
-
-## Запуск
-
-После сборки запускайте:
-
-```bash
-./dist/streamlit-parser.exe
-```
-
-Затем откройте адрес, который покажет приложение в консоли (обычно `http://localhost:8501`).
+После сборки файл будет в `dist/streamlit-parser.exe`

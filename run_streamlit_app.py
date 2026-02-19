@@ -1,36 +1,43 @@
-"""Launcher script for packaging the Streamlit app as a Windows executable.
-
-This module provides a stable entry point for PyInstaller. It starts Streamlit
-programmatically with `App.py` as the target script, preserving the regular
-runtime behavior of the project.
-"""
-
 from __future__ import annotations
 
 import os
 import sys
 
 
+def resolve_runtime_base_dir() -> str:
+    if getattr(sys, "frozen", False):
+        return getattr(sys, "_MEIPASS", os.getcwd())
+    return os.path.dirname(os.path.abspath(__file__))
+
+
+def resolve_script_path(script_name: str = "App.py") -> str:
+    base_dir = resolve_runtime_base_dir()
+    script_path = os.path.join(base_dir, script_name)
+
+    if not os.path.exists(script_path):
+        raise FileNotFoundError(
+            f"App.py not found in runtime bundle: {script_path}"
+        )
+
+    return script_path
+
+
 def main() -> None:
-    """Run Streamlit against ``App.py``.
+    # КРИТИЧНО: выключаем dev mode ДО импорта streamlit
+    os.environ["STREAMLIT_GLOBAL_DEVELOPMENT_MODE"] = "false"
 
-    The function rewrites ``sys.argv`` to emulate:
-
-    ``streamlit run App.py --server.headless true``
-
-    This approach keeps the app behavior equivalent to CLI startup and avoids
-    issues when freezing the executable.
-    """
     from streamlit.web import cli as streamlit_cli
 
-    app_path = os.path.join(os.path.dirname(__file__), "App.py")
+    script_path = resolve_script_path()
+
     sys.argv = [
         "streamlit",
         "run",
-        app_path,
+        script_path,
         "--server.headless",
-        "true",
+        "false",
     ]
+
     raise SystemExit(streamlit_cli.main())
 
 
