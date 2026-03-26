@@ -7,13 +7,13 @@ from typing import Any, Dict, List, Tuple
 
 from bs4 import BeautifulSoup
 
-from legacy.Parse import WebParser
-from legacy.infra.export.excel_exporter import ExcelExporter
-from legacy.infra.parsing.category_page_parser import CategoryPageParser
-from legacy.infra.parsing.extractors.v1 import CardExtractorV1
-from legacy.infra.parsing.extractors.v2 import CardExtractorV2
-from legacy.infra.parsing.feature_extractor import FeatureExtractor
-from legacy.infra.url.url_normalizer import URLNormalizer
+from parser_domain.web_parser import WebParser
+from parser_domain.infrastructure.exporters.excel_exporter import ExcelExporter
+from parser_domain.infrastructure.parsers.category_page_parser import CategoryPageParser
+from parser_domain.infrastructure.parsers.card_extractors.v1 import CardExtractorV1
+from parser_domain.infrastructure.parsers.card_extractors.v2 import CardExtractorV2
+from parser_domain.infrastructure.parsers.feature_extractor import FeatureExtractor
+from parser_domain.infrastructure.url_tools.url_normalizer import URLNormalizer
 
 __all__ = ["ProductListParser"]
 
