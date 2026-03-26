@@ -10,20 +10,23 @@ from parser_domain.infrastructure.parsers.product_details_extractor import Produ
 
 
 class WebParser:
-    """Класс WebParser.
-    
+    """Доменный фасад парсинга HTML-страниц каталога и карточек товара.
+
     Роль и ответственность:
-        - инкапсулирует поведение и состояние своей предметной роли.
-    
+        - объединяет инфраструктурные экстракторы ссылок, карточек и пагинации;
+        - предоставляет стабильный API для use-case слоя.
+
     Границы:
-        - не берёт ответственность внешних оркестраторов и интерфейсов.
-    
+        - не формирует UI-результаты и не экспортирует данные в файлы;
+        - не управляет пользовательскими сценариями запуска.
+
     Взаимодействие с другими ролями:
-        - получает зависимости через конструктор и вызывает их контракты.
+        - делегирует загрузку `HttpClient`, извлечение `LinkExtractor`/`ProductDetailsExtractor`,
+          переходы по страницам `CategoryPaginator`.
     """
 
     def __init__(self, http_client: Optional[HttpClient] = None):
-        """Выполняет операцию роли «__init__»."""
+        """Инициализирует инфраструктурные зависимости парсера домена."""
         self.setup_logging()
         self._http_client = http_client or HttpClient()
         self._link_extractor = LinkExtractor()
@@ -32,7 +35,7 @@ class WebParser:
 
     @staticmethod
     def setup_logging():
-        """Настраивает базовые обработчики логирования для выполнения парсера домена."""
+        """Конфигурирует стандартный вывод логов для операций парсинга."""
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s - %(levelname)s - %(message)s",
@@ -45,7 +48,7 @@ class WebParser:
         return " ".join(text.replace("\xa0", " ").strip().split())
 
     def get_page(self, url: str) -> Optional[BeautifulSoup]:
-        """Выполняет операцию роли «get_page»."""
+        """Загружает страницу и возвращает `BeautifulSoup` либо `None` при ошибке запроса."""
         return self._http_client.get_soup(url)
 
     def parse_links(self, soup: BeautifulSoup) -> List[str]:
@@ -57,11 +60,11 @@ class WebParser:
         return self._product_details_extractor.extract(soup)
 
     def _normalize_to_first_page(self, url: str) -> str:
-        """Выполняет операцию роли «_normalize_to_first_page»."""
+        """Нормализует URL категории к первой странице через выделенный paginator."""
         return self._paginator.normalize_to_first_page(url)
 
     def _iter_paginated_pages(self, base_url: str):
-        """Предоставляет совместимый итератор, делегированный роли пагинатора."""
+        """Проксирует итератор пагинации `(page_index, page_url, soup)` без модификаций."""
         return self._paginator.iter_paginated_pages(base_url)
 
     def iter_category_product_links(self, base_url: str) -> List[str]:

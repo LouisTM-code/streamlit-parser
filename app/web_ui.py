@@ -1,13 +1,16 @@
-"""Модуль web_ui.
+"""UI-слой на Streamlit для запуска сценариев парсинга.
 
 Роль и ответственность:
-    - предоставляет публичные элементы этого слоя.
+    - собирает пользовательские параметры и отображает результаты;
+    - связывает виджеты интерфейса с use-case слоя приложения.
 
 Границы:
-    - не реализует ответственность соседних слоёв.
+    - не выполняет HTTP-запросы напрямую;
+    - не содержит доменную логику извлечения данных из HTML.
 
 Взаимодействие с другими ролями:
-    - используется через импорт другими модулями проекта.
+    - вызывает `ParseProductsUseCase` и `ParseCategoryListUseCase`;
+    - использует `streamlit` как механизм рендера и событий.
 """
 
 import time
@@ -23,16 +26,18 @@ from parser_domain.web_parser import WebParser
 
 
 class StreamlitUI:
-    """Класс StreamlitUI.
-    
+    """Фасад взаимодействия с пользователем в Streamlit.
+
     Роль и ответственность:
-        - инкапсулирует поведение и состояние своей предметной роли.
-    
+        - управляет жизненным циклом UI: параметры → запуск → прогресс → результат;
+        - хранит ссылки на плейсхолдеры прогресса в рамках сессии.
+
     Границы:
-        - не берёт ответственность внешних оркестраторов и интерфейсов.
-    
+        - не валидирует HTML-разметку источника;
+        - не определяет структуру доменных сущностей парсинга.
+
     Взаимодействие с другими ролями:
-        - получает зависимости через конструктор и вызывает их контракты.
+        - оркестрирует вызовы use-case и отображает их выходные данные.
     """
 
     def __init__(
@@ -40,7 +45,7 @@ class StreamlitUI:
         parse_products_use_case: ParseProductsUseCase,
         parse_category_list_use_case: ParseCategoryListUseCase,
     ):
-        """Выполняет операцию роли «__init__»."""
+        """Сохраняет use-case зависимости и настраивает конфигурацию страницы."""
         self._parse_products_use_case = parse_products_use_case
         self._parse_category_list_use_case = parse_category_list_use_case
         self._setup_page_config()
@@ -50,7 +55,7 @@ class StreamlitUI:
 
     @staticmethod
     def _setup_page_config() -> None:
-        """Выполняет операцию роли «_setup_page_config»."""
+        """Применяет глобальные параметры страницы Streamlit до первого рендера."""
         st.set_page_config(
             page_title="Web Parser",
             layout="centered",
@@ -59,7 +64,12 @@ class StreamlitUI:
         )
 
     def render_sidebar(self) -> Optional[dict]:
-        """Отрисовывает элементы боковой панели и возвращает параметры выбранного режима."""
+        """Строит sidebar и возвращает параметры запуска выбранного сценария.
+
+        Контракт:
+            - возвращает `None`, если действие пользователя не инициировано кнопкой;
+            - возвращает словарь с ключом `mode` и обязательными полями сценария.
+        """
         with st.sidebar:
             st.title("⚙️ Управление парсером")
             tab_start, tab_list = st.tabs(
@@ -119,18 +129,18 @@ class StreamlitUI:
         return params
 
     def _init_progress(self) -> None:
-        """Инициализирует общие виджеты прогресса."""
+        """Создаёт виджеты прогресса, используемые callback-ами use-case слоя."""
         self.progress_bar = st.progress(0)
         self.status_text = st.empty()
         self.stats_placeholder = st.empty()
 
     def _update_progress(self, value: float, status: str) -> None:
-        """Обновляет прогресс-бар и текст статуса."""
+        """Обновляет визуальный прогресс по контракту `ProgressCallback`."""
         self.progress_bar.progress(int(value))
         self.status_text.markdown(f"**Статус:** {status}")
 
     def _show_stats(self, total: int, processed: int) -> None:
-        """Отрисовывает счётчики парсинга в боковой панели."""
+        """Публикует в sidebar метрики: всего, обработано и осталось."""
         self.stats_placeholder.markdown(
             f"""
         ### 📊 Прогресс
@@ -141,7 +151,7 @@ class StreamlitUI:
         )
 
     def render_results(self, data: pd.DataFrame, filename: str) -> None:
-        """Отрисовывает результаты стартового парсинга и кнопку скачивания."""
+        """Показывает результаты сценария `start` и готовит Excel-файл в памяти."""
         st.success("✅ Парсинг успешно завершен!")
 
         with st.expander("📁 Просмотр данных", expanded=True):
@@ -165,7 +175,7 @@ class StreamlitUI:
         excel_content: bytes,
         filename: str,
     ) -> None:
-        """Выполняет операцию роли «render_product_list_results»."""
+        """Отображает сводку batch-парсинга категорий и отчёт для скачивания."""
         st.success("✅ Обработка списка ссылок завершена!")
         st.subheader("📊 Итоговая статистика")
         st.markdown(
@@ -191,7 +201,7 @@ class StreamlitUI:
         )
 
     def run(self) -> None:
-        """Выполняет операцию роли «run»."""
+        """Выполняет основной UI-сценарий: выбор режима, запуск и вывод результата."""
         st.title("🔍 Web Parser")
 
         params = self.render_sidebar()
@@ -232,18 +242,18 @@ class StreamlitUI:
 
     @staticmethod
     def _fetch_with_spinner(link: str, fetch_page_callable):
-        """Выполняет операцию роли «_fetch_with_spinner»."""
+        """Оборачивает загрузку одной страницы в spinner без изменения сигнатуры callback."""
         with st.spinner(f"Обработка: {link.split('/')[-1]}"):
             return fetch_page_callable(link)
 
     @staticmethod
     def _on_product_item_error(idx: int, error: Exception) -> None:
-        """Показывает предупреждение о пропущенном товаре."""
+        """Показывает ошибку обработки товара, не прерывая общий прогон."""
         st.warning(f"Пропущен товар {idx}: {error}")
 
 
 def create_streamlit_ui(parser: WebParser) -> StreamlitUI:
-    """Выполняет операцию роли «create_streamlit_ui»."""
+    """Собирает экземпляр UI с use-case, разделяющими общий `WebParser`."""
     parse_products_use_case = ParseProductsUseCase(parser=parser)
     parse_category_list_use_case = ParseCategoryListUseCase(parser=parser)
     return StreamlitUI(
@@ -253,7 +263,7 @@ def create_streamlit_ui(parser: WebParser) -> StreamlitUI:
 
 
 def run_streamlit_ui() -> None:
-    """Выполняет операцию роли «run_streamlit_ui»."""
+    """Создаёт зависимости по умолчанию и запускает визуальный интерфейс."""
     parser = WebParser()
     ui = create_streamlit_ui(parser=parser)
     ui.run()

@@ -1,4 +1,17 @@
-"""Инфраструктура пагинации категорий."""
+"""Обход пагинированных страниц категории.
+
+Роль и ответственность:
+    - нормализует URL категории к первой странице и стандартному размеру выдачи;
+    - итерирует страницы до исчезновения блока «показать ещё».
+
+Границы:
+    - не извлекает ссылки/товары из DOM;
+    - не хранит состояние между разными категориями.
+
+Взаимодействие с другими ролями:
+    - использует `HttpClient` для загрузки страниц;
+    - вызывается из `WebParser` и `ProductListParser`.
+"""
 
 from __future__ import annotations
 
@@ -13,25 +26,15 @@ from parser_domain.infrastructure.http_client.client import HttpClient
 
 
 class CategoryPaginator:
-    """Класс CategoryPaginator.
-    
-    Роль и ответственность:
-        - инкапсулирует поведение и состояние своей предметной роли.
-    
-    Границы:
-        - не берёт ответственность внешних оркестраторов и интерфейсов.
-    
-    Взаимодействие с другими ролями:
-        - получает зависимости через конструктор и вызывает их контракты.
-    """
+    """Итератор страниц категории с пошаговой выдачей `(index, url, soup)`."""
 
     def __init__(self, http_client: HttpClient) -> None:
-        """Выполняет операцию роли «__init__»."""
+        """Сохраняет HTTP-клиент, используемый для всех запросов пагинации."""
         self._http_client = http_client
 
     @staticmethod
     def normalize_to_first_page(url: str) -> str:
-        """Выполняет операцию роли «normalize_to_first_page»."""
+        """Преобразует URL к формату `/page-1/` и добавляет `items_per_page=48`."""
         parsed = urlparse(url)
         path = parsed.path or "/"
 
@@ -50,7 +53,7 @@ class CategoryPaginator:
         self,
         base_url: str,
     ) -> Generator[Tuple[int, str, BeautifulSoup], None, None]:
-        """Выполняет операцию роли «iter_paginated_pages»."""
+        """Итерирует страницы категории до отсутствия блока подгрузки следующей страницы."""
         url = self.normalize_to_first_page(base_url)
         page = 1
 
