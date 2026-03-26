@@ -153,27 +153,29 @@ class ProductListParser:
             first_title: str | None = None
             success_any_page = False
 
-            for page_index, page_url, soup in self.parser._iter_paginated_pages(base_url):
-                if first_title is None:
-                    first_title = self._extract_page_title(soup)
-
-                if self.mode == "fulltable":
-                    products = self._category_page_parser.parse_full(soup)
-                else:
-                    products = self._category_page_parser.parse_basic(soup)
-
-                self.logger.info(
-                    f"  └— товаров на странице {page_index}: {len(products)}",
-                    context=TraceContext(
-                        operation="parse_category_page",
-                        url=base_url,
-                        page=page_index,
-                        parser_mode=self.mode,
-                    ),
+            with self.logger.trace_scope(
+                TraceContext(
+                    operation="parse_category_page",
+                    url=base_url,
+                    parser_mode=self.mode,
                 )
-                category_rows.extend(products)
-                all_products.extend(products)
-                success_any_page = True
+            ):
+                for page_index, page_url, soup in self.parser._iter_paginated_pages(base_url):
+                    if first_title is None:
+                        first_title = self._extract_page_title(soup)
+
+                    if self.mode == "fulltable":
+                        products = self._category_page_parser.parse_full(soup)
+                    else:
+                        products = self._category_page_parser.parse_basic(soup)
+
+                    self.logger.info(
+                        f"  └— товаров на странице {page_index}: {len(products)}",
+                        context=TraceContext(page=page_index),
+                    )
+                    category_rows.extend(products)
+                    all_products.extend(products)
+                    success_any_page = True
 
             if success_any_page:
                 title_for_sheet = first_title or base_url
