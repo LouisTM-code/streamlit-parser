@@ -163,29 +163,31 @@ class ProductListParser:
             first_title: str | None = None
             success_any_page = False
 
-            for page in self.parser._iter_paginated_pages(base_url):
-                if first_title is None:
-                    first_title = self._extract_page_title(page.soup)
-
-                if self.mode is ParserMode.FULLTABLE:
-                    products = self._category_page_parser.parse_full(page.soup)
-                    rows = [self._full_card_to_row(item) for item in products]
-                else:
-                    products = self._category_page_parser.parse_basic(page.soup)
-                    rows = [self._card_to_row(item) for item in products]
-
-                self.logger.info(
-                    f"  └— товаров на странице {page.page_index}: {len(rows)}",
-                    TraceContext(
-                        operation="parse_category_page",
-                        url=base_url,
-                        page=page.page_index,
-                        parser_mode=self.mode.value,
-                    ),
+            with self.logger.trace_scope(
+                TraceContext(
+                    operation="parse_category_page",
+                    url=base_url,
+                    parser_mode=self.mode.value,
                 )
-                category_rows.extend(rows)
-                all_products.extend(rows)
-                success_any_page = True
+            ):
+                for page in self.parser._iter_paginated_pages(base_url):
+                    if first_title is None:
+                        first_title = self._extract_page_title(page.soup)
+
+                    if self.mode is ParserMode.FULLTABLE:
+                        products = self._category_page_parser.parse_full(page.soup)
+                        rows = [self._full_card_to_row(item) for item in products]
+                    else:
+                        products = self._category_page_parser.parse_basic(page.soup)
+                        rows = [self._card_to_row(item) for item in products]
+
+                    with self.logger.trace_scope(TraceContext(page=page.page_index)):
+                        self.logger.info(
+                            f"  └— товаров на странице {page.page_index}: {len(rows)}"
+                        )
+                    category_rows.extend(rows)
+                    all_products.extend(rows)
+                    success_any_page = True
 
             if success_any_page:
                 title_for_sheet = first_title or base_url

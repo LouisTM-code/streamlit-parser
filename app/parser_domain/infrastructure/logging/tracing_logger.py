@@ -15,7 +15,11 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
+from contextvars import ContextVar, Token
+from dataclasses import fields
 import logging
+from typing import Iterator
 
 from parser_domain.infrastructure.logging.trace_context import TraceContext
 
@@ -38,18 +42,71 @@ class TracingLogger:
     def __init__(self, logger: logging.Logger) -> None:
         """Инициализирует wrapper поверх переданного `logging.Logger`."""
         self._logger = logger
+        self._scoped_context: ContextVar[TraceContext | None] = ContextVar(
+            "tracing_logger_scoped_context",
+            default=None,
+        )
+
+    @contextmanager
+    def trace_scope(self, context: TraceContext) -> Iterator[None]:
+        """Временно добавляет trace context к сообщениям внутри блока.
+
+        Роль и ответственность:
+            - задаёт scoped-контекст для серии логов в рамках одного `with`-блока;
+            - поддерживает вложенные scope с детерминированным объединением полей.
+
+        Границы:
+            - не меняет конфигурацию `logging.Logger`;
+            - не влияет на сообщения вне границ `with`-блока.
+
+        Взаимодействие с другими ролями:
+            - используется прикладным кодом для локального обогащения логов без
+              ручной передачи `context` в каждый вызов.
+        """
+        parent = self._scoped_context.get()
+        merged = self._merge_contexts(parent, context)
+        token: Token[TraceContext | None] = self._scoped_context.set(merged)
+        try:
+            yield
+        finally:
+            self._scoped_context.reset(token)
 
     def info(self, message: str, context: TraceContext | None = None) -> None:
         """Пишет сообщение уровня INFO с необязательным контекстом трассировки."""
-        self._logger.info(self._format_message(message, context))
+        self._logger.info(self._format_message(message, self._resolve_context(context)))
 
     def warning(self, message: str, context: TraceContext | None = None) -> None:
         """Пишет сообщение уровня WARNING с необязательным контекстом трассировки."""
-        self._logger.warning(self._format_message(message, context))
+        self._logger.warning(
+            self._format_message(message, self._resolve_context(context))
+        )
 
     def error(self, message: str, context: TraceContext | None = None) -> None:
         """Пишет сообщение уровня ERROR с необязательным контекстом трассировки."""
-        self._logger.error(self._format_message(message, context))
+        self._logger.error(self._format_message(message, self._resolve_context(context)))
+
+    def _resolve_context(self, context: TraceContext | None) -> TraceContext | None:
+        """Возвращает итоговый контекст с учётом scoped-контекста логгера."""
+        scoped = self._scoped_context.get()
+        return self._merge_contexts(scoped, context)
+
+    @staticmethod
+    def _merge_contexts(
+        base: TraceContext | None, overlay: TraceContext | None
+    ) -> TraceContext | None:
+        """Объединяет контексты: значения `overlay` приоритетнее `base`."""
+        if base is None:
+            return overlay
+        if overlay is None:
+            return base
+
+        merged_values = {
+            field.name: getattr(overlay, field.name)
+            if getattr(overlay, field.name) is not None
+            else getattr(base, field.name)
+            for field in fields(TraceContext)
+        }
+        return TraceContext(**merged_values)
 
     @staticmethod
     def _format_message(message: str, context: TraceContext | None) -> str:
