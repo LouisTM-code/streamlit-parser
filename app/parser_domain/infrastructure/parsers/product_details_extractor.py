@@ -15,9 +15,11 @@
 from __future__ import annotations
 
 import logging
-from typing import Callable, Dict
+from typing import Callable
 
 from bs4 import BeautifulSoup
+
+from parser_domain.types import ProductDetails
 
 
 class ProductDetailsExtractor:
@@ -27,13 +29,13 @@ class ProductDetailsExtractor:
         """Сохраняет внешнюю стратегию очистки текста для всех распарсенных полей."""
         self._clean_text = text_cleaner
 
-    def extract(self, soup: BeautifulSoup) -> Dict[str, str]:
+    def extract(self, soup: BeautifulSoup) -> ProductDetails:
         """Публичный метод извлечения; делегирует в `parse_product` для совместимости API."""
         return self.parse_product(soup)
 
-    def parse_features(self, soup: BeautifulSoup) -> Dict[str, str]:
+    def parse_features(self, soup: BeautifulSoup) -> dict[str, str]:
         """Парсит строки характеристик товара из секции характеристик."""
-        features: Dict[str, str] = {}
+        features: dict[str, str] = {}
         try:
             for feature_div in soup.find_all("div", class_="cnc-product-features__feature"):
                 label = feature_div.find("span", class_="cnc-product-features__label")
@@ -56,46 +58,61 @@ class ProductDetailsExtractor:
 
                 features[feature_name] = value
         except Exception as error:  # noqa: BLE001
-            logging.error(f"Ошибка парсинга характеристик: {str(error)}")
+            logging.error("Ошибка парсинга характеристик: %s", str(error))
 
         return features
 
-    def parse_product(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """Парсит базовые поля товара и объединяет их с извлечёнными характеристиками."""
-        product_data = {
-            "Товар": "Н/Д",
-            "Цена": "Н/Д",
-            "Описание": "Н/Д",
-            "Артикул": "Н/Д",
-        }
+    def parse_product(self, soup: BeautifulSoup) -> ProductDetails:
+        """Парсит базовые поля товара и возвращает `ProductDetails`."""
+        title = "Н/Д"
+        price = "Н/Д"
+        description = "Н/Д"
+        article = "Н/Д"
+        brand = "Н/Д"
+        availability = "Н/Д"
 
         try:
-            title = soup.find("h1", class_="cnc-product-detail__title")
-            if title:
-                product_data["Товар"] = self._clean_text(title.text)
+            title_tag = soup.find("h1", class_="cnc-product-detail__title")
+            if title_tag:
+                title = self._clean_text(title_tag.text)
 
             price_div = soup.find("div", class_="cnc-product-detail__price-actual")
             if price_div:
-                price = price_div.find("span", class_="ty-price-num")
-                if price:
-                    product_data["Цена"] = self._clean_text(price.text)
+                price_tag = price_div.find("span", class_="ty-price-num")
+                if price_tag:
+                    price = self._clean_text(price_tag.text)
 
             description_div = soup.find("div", class_="cnc-product-description__left")
             if description_div:
                 paragraphs = description_div.find_all(
                     "p", class_=lambda value: value != "cnc-product-description__notice"
                 )
-                product_data["Описание"] = " ".join(
+                description = " ".join(
                     self._clean_text(item.text) for item in paragraphs if item.text.strip()
                 )
 
             sku = soup.find("span", class_="g-js-text-for-copy cnc-product-detail__product-code")
             if sku:
-                product_data["Артикул"] = self._clean_text(sku.text)
+                article = self._clean_text(sku.text)
 
-            product_data.update(self.parse_features(soup))
-            logging.info(f"Извлечено {len(product_data) - 4} характеристик")
+            brand_tag = soup.select_one("a.cnc-product-detail__brand")
+            if brand_tag:
+                brand = self._clean_text(brand_tag.text)
+
+            availability_tag = soup.select_one("span.cnc-product-amount__status")
+            if availability_tag:
+                availability = self._clean_text(availability_tag.text)
         except Exception as error:  # noqa: BLE001
-            logging.error(f"Ошибка парсинга товара: {str(error)}")
+            logging.error("Ошибка парсинга товара: %s", str(error))
 
-        return product_data
+        features = self.parse_features(soup)
+        logging.info("Извлечено %d характеристик", len(features))
+        return ProductDetails(
+            title=title,
+            article=article,
+            brand=brand,
+            price=price,
+            availability=availability,
+            description=description,
+            features=features,
+        )

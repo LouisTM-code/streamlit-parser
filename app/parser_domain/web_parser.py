@@ -1,5 +1,5 @@
 import logging
-from typing import Dict, List, Optional
+from typing import Optional
 
 from bs4 import BeautifulSoup
 
@@ -7,6 +7,7 @@ from parser_domain.infrastructure.http_client.client import HttpClient
 from parser_domain.infrastructure.parsers.link_extractor import LinkExtractor
 from parser_domain.infrastructure.parsers.pagination import CategoryPaginator
 from parser_domain.infrastructure.parsers.product_details_extractor import ProductDetailsExtractor
+from parser_domain.types import CategoryPageRef, ProductDetails
 
 
 class WebParser:
@@ -51,11 +52,11 @@ class WebParser:
         """Загружает страницу и возвращает `BeautifulSoup` либо `None` при ошибке запроса."""
         return self._http_client.get_soup(url)
 
-    def parse_links(self, soup: BeautifulSoup) -> List[str]:
+    def parse_links(self, soup: BeautifulSoup) -> list[str]:
         """Собирает ссылки на товары категории через выделенную роль экстрактора."""
         return self._link_extractor.extract_links(soup)
 
-    def parse_product(self, soup: BeautifulSoup) -> Dict[str, str]:
+    def parse_product(self, soup: BeautifulSoup) -> ProductDetails:
         """Собирает детали товара через выделенную роль экстрактора."""
         return self._product_details_extractor.extract(soup)
 
@@ -64,21 +65,21 @@ class WebParser:
         return self._paginator.normalize_to_first_page(url)
 
     def _iter_paginated_pages(self, base_url: str):
-        """Проксирует итератор пагинации `(page_index, page_url, soup)` без модификаций."""
+        """Проксирует итератор пагинации в виде `CategoryPageRef` без модификаций."""
         return self._paginator.iter_paginated_pages(base_url)
 
-    def iter_category_product_links(self, base_url: str) -> List[str]:
+    def iter_category_product_links(self, base_url: str) -> list[str]:
         """Собирает все уникальные ссылки на товары со страниц пагинации категории."""
-        all_links: List[str] = []
-        seen = set()
+        all_links: list[str] = []
+        seen: set[str] = set()
 
-        for page_index, page_url, soup in self._iter_paginated_pages(base_url):
-            page_links = self.parse_links(soup)
-            logging.info(f"  └— ссылок на странице {page_index}: {len(page_links)}")
+        for page in self._iter_paginated_pages(base_url):
+            page_links = self.parse_links(page.soup)
+            logging.info("  └— ссылок на странице %d: %d", page.page_index, len(page_links))
             for href in page_links:
                 if href not in seen:
                     seen.add(href)
                     all_links.append(href)
 
-        logging.info(f"Итого ссылок в категории: {len(all_links)}")
+        logging.info("Итого ссылок в категории: %d", len(all_links))
         return all_links
