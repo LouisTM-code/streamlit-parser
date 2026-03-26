@@ -56,7 +56,7 @@ class ProductListParser:
 
     @staticmethod
     def _configure_logger() -> logging.Logger:
-        """Настраивает изолированный логгер класса ProductListParser."""
+        """Выполняет операцию роли «_configure_logger»."""
         logger = logging.getLogger("ProductListParser")
         if not logger.handlers:
             logger.setLevel(logging.INFO)
@@ -87,14 +87,14 @@ class ProductListParser:
         return re.sub(r"[^0-9.,]", "", no_nbsp).replace(" ", "")
 
     def _extract_page_title(self, soup: BeautifulSoup) -> str:
-        """Возвращает заголовок категории для имени листа Excel."""
+        """Выполняет операцию роли «_extract_page_title»."""
         tag = soup.select_one("h1.cnc-title-xl span")
         if not tag:
             tag = soup.find("h1")
         return self._clean_text(tag.get_text()) if tag else "Категория"
 
     def _make_unique_sheet_name(self, title: str) -> str:
-        """Создаёт уникальное и безопасное имя листа Excel."""
+        """Выполняет операцию роли «_make_unique_sheet_name»."""
         safe = re.sub(r"[:\\/?*\[\]]", " ", title).strip()
         if not safe:
             safe = "Sheet"
@@ -169,5 +169,5 @@ class ProductListParser:
         return all_products, stats
 
     def save_results(self) -> bytes:
-        """Сохраняет результаты в Excel через инфраструктурный экспортёр."""
+        """Выполняет операцию роли «save_results»."""
         return ExcelExporter.save_sheets(self._sheet_data, self.output_file)

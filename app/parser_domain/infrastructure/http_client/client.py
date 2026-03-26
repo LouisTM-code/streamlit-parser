@@ -1,4 +1,14 @@
-"""HTTP client infrastructure for parser modules."""
+"""Модуль client.
+
+Роль и ответственность:
+    - предоставляет публичные элементы этого слоя.
+
+Границы:
+    - не реализует ответственность соседних слоёв.
+
+Взаимодействие с другими ролями:
+    - используется через импорт другими модулями проекта.
+"""
 
 from __future__ import annotations
 
@@ -10,22 +20,20 @@ from bs4 import BeautifulSoup
 
 
 class HttpClient:
-    """HTTP transport role for HTML retrieval.
-
-    Responsibility:
-        - create and own a persistent ``requests.Session`` with parser headers;
-        - execute GET requests and convert HTML to ``BeautifulSoup``.
-
-    Boundaries:
-        - does not parse domain fields or product structures;
-        - does not implement pagination or link extraction policies.
-
-    Interactions:
-        - consumed by ``WebParser`` and other parsing roles as a soup provider.
+    """Класс HttpClient.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def __init__(self) -> None:
-        """Initialize session state and default headers for scraping."""
+        """Инициализирует состояние сессии и заголовки по умолчанию для парсинга."""
         self.session = requests.Session()
         self.headers = {
             "User-Agent": (
@@ -37,7 +45,7 @@ class HttpClient:
         self.session.headers.update(self.headers)
 
     def get_soup(self, url: str) -> Optional[BeautifulSoup]:
-        """Fetch URL and return parsed HTML tree or ``None`` on request errors."""
+        """Выполняет операцию роли «get_soup»."""
         try:
             response = self.session.get(url)
             response.raise_for_status()

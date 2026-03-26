@@ -10,24 +10,20 @@ from parser_domain.infrastructure.parsers.product_details_extractor import Produ
 
 
 class WebParser:
-    """Facade parser that orchestrates HTTP, pagination and extraction roles.
-
-    Responsibility:
-        - configure logging and compose infrastructure collaborators;
-        - provide backward-compatible parser API used by UI and parser domain modules.
-
-    Boundaries:
-        - does not implement low-level HTTP, pagination and link/product extraction logic.
-
-    Interactions:
-        - delegates soup loading to ``HttpClient``;
-        - delegates category links to ``LinkExtractor``;
-        - delegates product details to ``ProductDetailsExtractor``;
-        - delegates page traversal to ``CategoryPaginator``.
+    """Класс WebParser.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def __init__(self, http_client: Optional[HttpClient] = None):
-        """Initialize parser facade with injectable HTTP client dependency."""
+        """Выполняет операцию роли «__init__»."""
         self.setup_logging()
         self._http_client = http_client or HttpClient()
         self._link_extractor = LinkExtractor()
@@ -36,7 +32,7 @@ class WebParser:
 
     @staticmethod
     def setup_logging():
-        """Configure base logging handlers for parser domain parser execution."""
+        """Настраивает базовые обработчики логирования для выполнения парсера домена."""
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s - %(levelname)s - %(message)s",
@@ -45,31 +41,31 @@ class WebParser:
 
     @staticmethod
     def clean_text(text: str) -> str:
-        """Normalize text spacing and non-breaking spaces for parsed values."""
+        """Нормализует пробелы и неразрывные пробелы в распарсенных значениях."""
         return " ".join(text.replace("\xa0", " ").strip().split())
 
     def get_page(self, url: str) -> Optional[BeautifulSoup]:
-        """Backward-compatible soup loader delegated to ``HttpClient``."""
+        """Выполняет операцию роли «get_page»."""
         return self._http_client.get_soup(url)
 
     def parse_links(self, soup: BeautifulSoup) -> List[str]:
-        """Collect category product links through dedicated extractor role."""
+        """Собирает ссылки на товары категории через выделенную роль экстрактора."""
         return self._link_extractor.extract_links(soup)
 
     def parse_product(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """Collect product details through dedicated extractor role."""
+        """Собирает детали товара через выделенную роль экстрактора."""
         return self._product_details_extractor.extract(soup)
 
     def _normalize_to_first_page(self, url: str) -> str:
-        """Backward-compatible access to category URL normalization logic."""
+        """Выполняет операцию роли «_normalize_to_first_page»."""
         return self._paginator.normalize_to_first_page(url)
 
     def _iter_paginated_pages(self, base_url: str):
-        """Backward-compatible iterator delegated to paginator role."""
+        """Предоставляет совместимый итератор, делегированный роли пагинатора."""
         return self._paginator.iter_paginated_pages(base_url)
 
     def iter_category_product_links(self, base_url: str) -> List[str]:
-        """Collect all unique product links from paginated category pages."""
+        """Собирает все уникальные ссылки на товары со страниц пагинации категории."""
         all_links: List[str] = []
         seen = set()
 

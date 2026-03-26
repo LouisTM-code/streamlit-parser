@@ -1,17 +1,13 @@
-"""Use-case for parsing product cards by start category URL.
+"""Модуль parse_products.
 
-Role and responsibility:
-    - orchestrate category traversal and product page parsing for the start parser mode;
-    - return parsed data as ``pandas.DataFrame`` with output filename.
+Роль и ответственность:
+    - предоставляет публичные элементы этого слоя.
 
-Boundaries:
-    - does not render UI elements;
-    - does not format Streamlit widgets;
-    - does not manage download buttons or page layout.
+Границы:
+    - не реализует ответственность соседних слоёв.
 
-Interactions:
-    - uses ``parser_domain.web_parser.WebParser`` as parsing facade;
-    - optionally reports progress and per-item errors through callbacks provided by UI.
+Взаимодействие с другими ролями:
+    - используется через импорт другими модулями проекта.
 """
 
 from __future__ import annotations
@@ -30,23 +26,20 @@ ErrorCallback = Callable[[int, Exception], None]
 
 
 class ParseProductsUseCase:
-    """Application use-case for the "start URL" parsing scenario.
-
-    Role and responsibility:
-        - execute parsing workflow for one category URL;
-        - preserve parser domain parsing semantics while isolating orchestration from UI.
-
-    Boundaries:
-        - does not depend on Streamlit;
-        - does not perform output rendering.
-
-    Interactions:
-        - delegates parsing operations to ``WebParser`` methods;
-        - accepts callback hooks from UI to report progress/status.
+    """Класс ParseProductsUseCase.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def __init__(self, parser: WebParser) -> None:
-        """Initialize use-case with parser dependency."""
+        """Выполняет операцию роли «__init__»."""
         self._parser = parser
 
     def execute(
@@ -58,7 +51,7 @@ class ParseProductsUseCase:
         on_page_request: Optional[ProcessPageCallback] = None,
         on_item_error: Optional[ErrorCallback] = None,
     ) -> Tuple[pd.DataFrame, str]:
-        """Run parsing flow and return tabular result and output filename."""
+        """Запускает процесс парсинга и возвращает таблицу и имя выходного файла."""
         links = self._parser.iter_category_product_links(url)
         if not links:
             raise Exception("Ссылки на товары не найдены")

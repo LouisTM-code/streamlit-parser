@@ -1,4 +1,4 @@
-"""Product detail extraction infrastructure."""
+"""Инфраструктура извлечения деталей товара."""
 
 from __future__ import annotations
 
@@ -9,30 +9,28 @@ from bs4 import BeautifulSoup
 
 
 class ProductDetailsExtractor:
-    """Product detail parsing role.
-
-    Responsibility:
-        - parse product core fields and dynamic feature fields from product pages;
-        - rely on a provided text cleaner for normalization.
-
-    Boundaries:
-        - does not execute HTTP requests;
-        - does not manage storage or export.
-
-    Interactions:
-        - composed into ``WebParser``; ``WebParser`` provides clean_text callable.
+    """Класс ProductDetailsExtractor.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def __init__(self, text_cleaner: Callable[[str], str]) -> None:
-        """Store external text cleaning strategy used across parsed fields."""
+        """Сохраняет внешнюю стратегию очистки текста для всех распарсенных полей."""
         self._clean_text = text_cleaner
 
     def extract(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """Parse and return full product payload from soup."""
+        """Выполняет операцию роли «extract»."""
         return self.parse_product(soup)
 
     def parse_features(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """Parse product feature rows from feature section."""
+        """Парсит строки характеристик товара из секции характеристик."""
         features: Dict[str, str] = {}
         try:
             for feature_div in soup.find_all("div", class_="cnc-product-features__feature"):
@@ -61,7 +59,7 @@ class ProductDetailsExtractor:
         return features
 
     def parse_product(self, soup: BeautifulSoup) -> Dict[str, str]:
-        """Parse product base fields and merge extracted features."""
+        """Парсит базовые поля товара и объединяет их с извлечёнными характеристиками."""
         product_data = {
             "Товар": "Н/Д",
             "Цена": "Н/Д",

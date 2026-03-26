@@ -1,16 +1,13 @@
-"""Use-case for parsing a provided list of category URLs.
+"""Модуль parse_category_list.
 
-Role and responsibility:
-    - orchestrate ``ProductListParser`` lifecycle for category list mode;
-    - return parser stats, Excel bytes and output filename.
+Роль и ответственность:
+    - предоставляет публичные элементы этого слоя.
 
-Boundaries:
-    - does not depend on Streamlit components;
-    - does not render progress or messages.
+Границы:
+    - не реализует ответственность соседних слоёв.
 
-Interactions:
-    - creates and invokes ``parser_domain.product_list_parser.ProductListParser``;
-    - accepts externally provided ``WebParser`` dependency.
+Взаимодействие с другими ролями:
+    - используется через импорт другими модулями проекта.
 """
 
 from __future__ import annotations
@@ -22,22 +19,20 @@ from parser_domain.product_list_parser import ProductListParser
 
 
 class ParseCategoryListUseCase:
-    """Application use-case for tabular parsing of category link lists.
-
-    Role and responsibility:
-        - validate input links and parser mode;
-        - run parsing and export aggregation pipeline.
-
-    Boundaries:
-        - does not implement UI concerns;
-        - does not expose ``ProductListParser`` internals to presentation layer.
-
-    Interactions:
-        - composes ``ProductListParser`` with injected ``WebParser`` facade.
+    """Класс ParseCategoryListUseCase.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def __init__(self, parser: WebParser) -> None:
-        """Initialize use-case with shared parser dependency."""
+        """Выполняет операцию роли «__init__»."""
         self._parser = parser
 
     def execute(
@@ -46,7 +41,7 @@ class ParseCategoryListUseCase:
         output_filename: str,
         parser_mode: str = "basic",
     ) -> Tuple[Dict[str, Any], bytes, str]:
-        """Run category list parsing and return stats and Excel binary payload."""
+        """Выполняет операцию роли «execute»."""
         if len(links) == 0:
             raise Exception("Список ссылок пуст")
 

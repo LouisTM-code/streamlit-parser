@@ -1,4 +1,4 @@
-"""V1 product card extractor."""
+"""Экстрактор карточек товаров V1."""
 
 from __future__ import annotations
 
@@ -8,18 +8,16 @@ from bs4 import Tag
 
 
 class CardExtractorV1:
-    """Extractor role for v1 mobile-category card markup.
-
-    Responsibility:
-        - parse fixed product fields from ``cnc-product-categories-mob-card`` blocks.
-
-    Boundaries:
-        - does not paginate category pages;
-        - does not save parsed results.
-
-    Interactions:
-        - receives text/price cleaning callables from orchestration layer;
-        - used by ``CategoryPageParser`` in basic and full parsing modes.
+    """Класс CardExtractorV1.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def __init__(
@@ -27,12 +25,12 @@ class CardExtractorV1:
         clean_text: Callable[[str], str],
         clean_price: Callable[[str], str],
     ) -> None:
-        """Store normalization dependencies for extracted values."""
+        """Сохраняет зависимости нормализации для извлечённых значений."""
         self._clean_text = clean_text
         self._clean_price = clean_price
 
     def extract(self, row: Tag) -> Dict[str, str] | None:
-        """Extract fixed data fields from v1 card row."""
+        """Извлекает фиксированные поля данных из строки карточки v1."""
         name_td = row.find("div", class_="cnc-product-categories-mob-card__header")
         if not name_td or not name_td.a:
             return None
