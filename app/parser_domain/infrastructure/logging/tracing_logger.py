@@ -23,6 +23,36 @@ from typing import Iterator
 
 from parser_domain.infrastructure.logging.trace_context import TraceContext
 
+_SCOPED_TRACE_CONTEXT: ContextVar[TraceContext | None] = ContextVar(
+    "tracing_logger_scoped_context",
+    default=None,
+)
+
+
+@contextmanager
+def trace_scope(context: TraceContext) -> Iterator[None]:
+    """Контекстный менеджер сквозной трассировки для всех экземпляров `TracingLogger`.
+
+    Роль и ответственность:
+        - задаёт trace context в рамках текущего `with`-блока;
+        - обеспечивает наследование контекста во вложенных scope.
+
+    Границы:
+        - не меняет конфигурацию обработчиков/уровней стандартного logging;
+        - не выполняет запись сообщений самостоятельно.
+
+    Взаимодействие с другими ролями:
+        - используется orchestration-кодом (`use-case`, фасады) для автоматического
+          обогащения сообщений, записываемых через `TracingLogger`.
+    """
+    parent = _SCOPED_TRACE_CONTEXT.get()
+    merged = TracingLogger._merge_contexts(parent, context)
+    token: Token[TraceContext | None] = _SCOPED_TRACE_CONTEXT.set(merged)
+    try:
+        yield
+    finally:
+        _SCOPED_TRACE_CONTEXT.reset(token)
+
 
 class TracingLogger:
     """Адаптер стандартного logger для логирования с необязательным trace context.
@@ -42,10 +72,6 @@ class TracingLogger:
     def __init__(self, logger: logging.Logger) -> None:
         """Инициализирует wrapper поверх переданного `logging.Logger`."""
         self._logger = logger
-        self._scoped_context: ContextVar[TraceContext | None] = ContextVar(
-            "tracing_logger_scoped_context",
-            default=None,
-        )
 
     @contextmanager
     def trace_scope(self, context: TraceContext) -> Iterator[None]:
@@ -63,13 +89,8 @@ class TracingLogger:
             - используется прикладным кодом для локального обогащения логов без
               ручной передачи `context` в каждый вызов.
         """
-        parent = self._scoped_context.get()
-        merged = self._merge_contexts(parent, context)
-        token: Token[TraceContext | None] = self._scoped_context.set(merged)
-        try:
+        with trace_scope(context):
             yield
-        finally:
-            self._scoped_context.reset(token)
 
     def info(self, message: str, context: TraceContext | None = None) -> None:
         """Пишет сообщение уровня INFO с необязательным контекстом трассировки."""
@@ -87,7 +108,7 @@ class TracingLogger:
 
     def _resolve_context(self, context: TraceContext | None) -> TraceContext | None:
         """Возвращает итоговый контекст с учётом scoped-контекста логгера."""
-        scoped = self._scoped_context.get()
+        scoped = _SCOPED_TRACE_CONTEXT.get()
         return self._merge_contexts(scoped, context)
 
     @staticmethod

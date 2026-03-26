@@ -4,6 +4,8 @@ from typing import Optional
 from bs4 import BeautifulSoup
 
 from parser_domain.infrastructure.http_client.client import HttpClient
+from parser_domain.infrastructure.logging.trace_context import TraceContext
+from parser_domain.infrastructure.logging.tracing_logger import TracingLogger
 from parser_domain.infrastructure.parsers.link_extractor import LinkExtractor
 from parser_domain.infrastructure.parsers.pagination import CategoryPaginator
 from parser_domain.infrastructure.parsers.product_details_extractor import ProductDetailsExtractor
@@ -29,6 +31,7 @@ class WebParser:
     def __init__(self, http_client: Optional[HttpClient] = None):
         """Инициализирует инфраструктурные зависимости парсера домена."""
         self.setup_logging()
+        self._logger = TracingLogger(logging.getLogger("WebParser"))
         self._http_client = http_client or HttpClient()
         self._link_extractor = LinkExtractor()
         self._product_details_extractor = ProductDetailsExtractor(self.clean_text)
@@ -74,12 +77,15 @@ class WebParser:
         seen: set[str] = set()
 
         for page in self._iter_paginated_pages(base_url):
-            page_links = self.parse_links(page.soup)
-            logging.info("  └— ссылок на странице %d: %d", page.page_index, len(page_links))
-            for href in page_links:
-                if href not in seen:
-                    seen.add(href)
-                    all_links.append(href)
+            with self._logger.trace_scope(TraceContext(page=page.page_index)):
+                page_links = self.parse_links(page.soup)
+                self._logger.info(
+                    f"  └— ссылок на странице {page.page_index}: {len(page_links)}"
+                )
+                for href in page_links:
+                    if href not in seen:
+                        seen.add(href)
+                        all_links.append(href)
 
-        logging.info("Итого ссылок в категории: %d", len(all_links))
+        self._logger.info(f"Итого ссылок в категории: {len(all_links)}")
         return all_links

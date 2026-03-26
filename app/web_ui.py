@@ -13,6 +13,7 @@
     - использует `streamlit` как механизм рендера и событий.
 """
 
+import logging
 import time
 from io import BytesIO
 from typing import Optional
@@ -32,6 +33,7 @@ from parser_domain.types import (
     ProductsParseResult,
 )
 from parser_domain.web_parser import WebParser
+from streamlit_logging_handler import StreamlitLogHandler
 
 
 class StreamlitUI:
@@ -61,6 +63,8 @@ class StreamlitUI:
         self.progress_bar = None
         self.status_text = None
         self.stats_placeholder = None
+        self._ui_log_handler: StreamlitLogHandler | None = None
+        self._ui_logs_enabled = False
 
     @staticmethod
     def _setup_page_config() -> None:
@@ -130,6 +134,11 @@ class StreamlitUI:
                     )
 
             st.markdown("---")
+            self._ui_logs_enabled = st.checkbox(
+                "Показывать логи в UI",
+                value=False,
+                key="show_logs",
+            )
             self.stats_placeholder = st.empty()
 
         return command
@@ -211,6 +220,7 @@ class StreamlitUI:
             return
 
         self._init_progress()
+        self._attach_logging_handler()
         try:
             if isinstance(command, ParseProductsCommand):
                 result = self._parse_products_use_case.execute(
@@ -241,9 +251,30 @@ class StreamlitUI:
         except Exception as exc:  # noqa: BLE001
             st.error(f"⛔ Ошибка: {exc}")
         finally:
+            self._detach_logging_handler()
             time.sleep(0.5)
             self.progress_bar.empty()
             self.status_text.empty()
+
+    def _attach_logging_handler(self) -> None:
+        """Подключает безопасный bridge логов в UI при включённой опции отображения."""
+        if not self._ui_logs_enabled:
+            return
+
+        log_placeholder = st.empty()
+        self._ui_log_handler = StreamlitLogHandler(
+            info_writer=lambda message: log_placeholder.markdown(message),
+            warning_writer=st.warning,
+            error_writer=st.error,
+        )
+        logging.getLogger().addHandler(self._ui_log_handler)
+
+    def _detach_logging_handler(self) -> None:
+        """Отключает ранее подключённый UI-handler, не влияя на консольный вывод."""
+        if self._ui_log_handler is None:
+            return
+        logging.getLogger().removeHandler(self._ui_log_handler)
+        self._ui_log_handler = None
 
     @staticmethod
     def _fetch_with_spinner(link: str, fetch_page_callable):

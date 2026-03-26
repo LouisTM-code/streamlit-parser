@@ -27,6 +27,8 @@ from application.dto.tracing import (
     StatsCallback,
     StatsEvent,
 )
+from parser_domain.infrastructure.logging.trace_context import TraceContext
+from parser_domain.infrastructure.logging.tracing_logger import trace_scope
 from parser_domain.types import ParseProductsCommand, ProductDetails, ProductsParseResult
 from parser_domain.web_parser import WebParser
 
@@ -63,45 +65,49 @@ class ParseProductsUseCase:
         on_item_error: ErrorCallback | None = None,
     ) -> ProductsParseResult:
         """Выполняет парсинг товаров и публикует типизированные callback-события."""
-        links = self._parser.iter_category_product_links(command.category_url)
-        if not links:
-            raise Exception("Ссылки на товары не найдены")
+        with trace_scope(
+            TraceContext(operation="parse_products", url=command.category_url)
+        ):
+            links = self._parser.iter_category_product_links(command.category_url)
+            if not links:
+                raise Exception("Ссылки на товары не найдены")
 
-        if on_progress:
-            on_progress(ProgressEvent(progress=15, status="Поиск ссылок на товары…"))
+            if on_progress:
+                on_progress(ProgressEvent(progress=15, status="Поиск ссылок на товары…"))
 
-        total = len(links)
-        products: list[dict[str, str]] = []
+            total = len(links)
+            products: list[dict[str, str]] = []
 
-        for idx, link in enumerate(links, 1):
-            try:
-                if on_progress:
-                    progress = 15 + int(70 * (idx / total))
-                    on_progress(
-                        ProgressEvent(
-                            progress=progress,
-                            status=f"Обработка товара {idx}/{total}",
-                        )
-                    )
-                if on_stats:
-                    on_stats(StatsEvent(total=total, processed=idx))
-                if on_page_request:
-                    product_page = on_page_request(link, self._parser.get_page)
-                else:
-                    product_page = self._parser.get_page(link)
-                if product_page:
-                    details = self._parser.parse_product(product_page)
-                    products.append(self._detail_to_row(details))
+            for idx, link in enumerate(links, 1):
+                with trace_scope(TraceContext(item_index=idx)):
+                    try:
+                        if on_progress:
+                            progress = 15 + int(70 * (idx / total))
+                            on_progress(
+                                ProgressEvent(
+                                    progress=progress,
+                                    status=f"Обработка товара {idx}/{total}",
+                                )
+                            )
+                        if on_stats:
+                            on_stats(StatsEvent(total=total, processed=idx))
+                        if on_page_request:
+                            product_page = on_page_request(link, self._parser.get_page)
+                        else:
+                            product_page = self._parser.get_page(link)
+                        if product_page:
+                            details = self._parser.parse_product(product_page)
+                            products.append(self._detail_to_row(details))
 
-                time.sleep(0.1)
-            except Exception as ex:  # noqa: BLE001
-                if on_item_error:
-                    on_item_error(
-                        ItemErrorEvent(
-                            index=idx,
-                            error=f"({link}): {type(ex).__name__} - {ex}",
-                        )
-                    )
+                        time.sleep(0.1)
+                    except Exception as ex:  # noqa: BLE001
+                        if on_item_error:
+                            on_item_error(
+                                ItemErrorEvent(
+                                    index=idx,
+                                    error=f"({link}): {type(ex).__name__} - {ex}",
+                                )
+                            )
 
         if on_progress:
             on_progress(ProgressEvent(progress=95, status="Формирование отчёта…"))
