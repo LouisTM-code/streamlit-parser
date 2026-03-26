@@ -9,7 +9,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from bs4 import BeautifulSoup
 
-from legacy.infra.http.client import HttpClient
+from parser_domain.infrastructure.http_client.client import HttpClient
 
 
 class CategoryPaginator:

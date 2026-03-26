@@ -10,7 +10,7 @@ Boundaries:
     - does not manage download buttons or page layout.
 
 Interactions:
-    - uses ``legacy.Parse.WebParser`` as parsing facade;
+    - uses ``parser_domain.web_parser.WebParser`` as parsing facade;
     - optionally reports progress and per-item errors through callbacks provided by UI.
 """
 
@@ -21,7 +21,7 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import pandas as pd
 
-from legacy.Parse import WebParser
+from parser_domain.web_parser import WebParser
 
 ProgressCallback = Callable[[float, str], None]
 StatsCallback = Callable[[int, int], None]
@@ -34,7 +34,7 @@ class ParseProductsUseCase:
 
     Role and responsibility:
         - execute parsing workflow for one category URL;
-        - preserve legacy parsing semantics while isolating orchestration from UI.
+        - preserve parser domain parsing semantics while isolating orchestration from UI.
 
     Boundaries:
         - does not depend on Streamlit;

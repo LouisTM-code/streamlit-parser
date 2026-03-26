@@ -9,7 +9,7 @@ Boundaries:
     - does not render progress or messages.
 
 Interactions:
-    - creates and invokes ``legacy.product_list_parser.ProductListParser``;
+    - creates and invokes ``parser_domain.product_list_parser.ProductListParser``;
     - accepts externally provided ``WebParser`` dependency.
 """
 
@@ -17,8 +17,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional, Tuple
 
-from legacy.Parse import WebParser
-from legacy.product_list_parser import ProductListParser
+from parser_domain.web_parser import WebParser
+from parser_domain.product_list_parser import ProductListParser
 
 
 class ParseCategoryListUseCase:

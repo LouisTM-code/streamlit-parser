@@ -22,7 +22,7 @@ import streamlit as st
 
 from application.use_cases.parse_category_list import ParseCategoryListUseCase
 from application.use_cases.parse_products import ParseProductsUseCase
-from legacy.Parse import WebParser
+from parser_domain.web_parser import WebParser
 
 
 class StreamlitUI:

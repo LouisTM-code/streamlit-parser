@@ -3,10 +3,10 @@ from typing import Dict, List, Optional
 
 from bs4 import BeautifulSoup
 
-from legacy.infra.http.client import HttpClient
-from legacy.infra.parsing.link_extractor import LinkExtractor
-from legacy.infra.parsing.pagination import CategoryPaginator
-from legacy.infra.parsing.product_details_extractor import ProductDetailsExtractor
+from parser_domain.infrastructure.http_client.client import HttpClient
+from parser_domain.infrastructure.parsers.link_extractor import LinkExtractor
+from parser_domain.infrastructure.parsers.pagination import CategoryPaginator
+from parser_domain.infrastructure.parsers.product_details_extractor import ProductDetailsExtractor
 
 
 class WebParser:
@@ -14,7 +14,7 @@ class WebParser:
 
     Responsibility:
         - configure logging and compose infrastructure collaborators;
-        - provide backward-compatible parser API used by UI and legacy modules.
+        - provide backward-compatible parser API used by UI and parser domain modules.
 
     Boundaries:
         - does not implement low-level HTTP, pagination and link/product extraction logic.
@@ -36,7 +36,7 @@ class WebParser:
 
     @staticmethod
     def setup_logging():
-        """Configure base logging handlers for legacy parser execution."""
+        """Configure base logging handlers for parser domain parser execution."""
         logging.basicConfig(
             level=logging.INFO,
             format="%(asctime)s - %(levelname)s - %(message)s",

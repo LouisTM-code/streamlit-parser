@@ -6,9 +6,9 @@ from typing import Any, Dict, List
 
 from bs4 import BeautifulSoup, Tag
 
-from legacy.infra.parsing.extractors.v1 import CardExtractorV1
-from legacy.infra.parsing.extractors.v2 import CardExtractorV2
-from legacy.infra.parsing.feature_extractor import FeatureExtractor
+from parser_domain.infrastructure.parsers.card_extractors.v1 import CardExtractorV1
+from parser_domain.infrastructure.parsers.card_extractors.v2 import CardExtractorV2
+from parser_domain.infrastructure.parsers.feature_extractor import FeatureExtractor
 
 
 class CategoryPageParser:
