@@ -15,13 +15,23 @@
 
 import time
 from io import BytesIO
-from typing import Any, Dict, Optional
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
 
 from application.use_cases.parse_category_list import ParseCategoryListUseCase
 from application.use_cases.parse_products import ParseProductsUseCase
+from parser_domain.types import (
+    CategoryListParseResult,
+    CategoryParseStats,
+    ItemErrorInfo,
+    ParseCategoryListCommand,
+    ParseProductsCommand,
+    ParserMode,
+    ProductsParseResult,
+    ProgressUpdate,
+)
 from parser_domain.web_parser import WebParser
 
 
@@ -63,26 +73,24 @@ class StreamlitUI:
             initial_sidebar_state="expanded",
         )
 
-    def render_sidebar(self) -> Optional[dict]:
-        """Строит sidebar и возвращает параметры запуска выбранного сценария.
-
-        Контракт:
-            - возвращает `None`, если действие пользователя не инициировано кнопкой;
-            - возвращает словарь с ключом `mode` и обязательными полями сценария.
-        """
+    def render_sidebar(self) -> Optional[object]:
+        """Строит sidebar и возвращает команду запуска выбранного сценария."""
         with st.sidebar:
             st.title("⚙️ Управление парсером")
             tab_start, tab_list = st.tabs(
                 ["Парсинг Характеристик", "Табличный-парсинг Каталога"]
             )
 
-            params: Optional[dict] = None
+            command: Optional[object] = None
 
             with tab_start:
                 url = st.text_input("Стартовый URL", "https://example.com", key="start_url")
                 output_file = st.text_input("Имя файла", "products.xlsx", key="start_output")
                 if st.button("🚀 Начать парсинг", key="start_button", width="stretch"):
-                    params = {"mode": "start", "url": url, "output": output_file}
+                    command = ParseProductsCommand(
+                        category_url=url,
+                        output_filename=output_file,
+                    )
 
             with tab_list:
                 links_text = st.text_area(
@@ -93,8 +101,8 @@ class StreamlitUI:
                 )
 
                 mode_display_to_value = {
-                    "basic (стандартный)": "basic",
-                    "fulltable (расширенный)": "fulltable",
+                    "basic (стандартный)": ParserMode.BASIC,
+                    "fulltable (расширенный)": ParserMode.FULLTABLE,
                 }
                 mode_label = st.selectbox(
                     "Режим табличного парсинга",
@@ -115,18 +123,17 @@ class StreamlitUI:
                     key="links_output",
                 )
                 if st.button("🚀 Запустить", key="list_button", width="stretch"):
-                    raw_links = [ln for ln in links_text.splitlines() if ln.strip()]
-                    params = {
-                        "mode": "productlist",
-                        "parser_mode": parser_mode,
-                        "links": raw_links,
-                        "output": output_file_links,
-                    }
+                    raw_links = tuple(ln for ln in links_text.splitlines() if ln.strip())
+                    command = ParseCategoryListCommand(
+                        links=raw_links,
+                        output_filename=output_file_links,
+                        parser_mode=parser_mode,
+                    )
 
             st.markdown("---")
             self.stats_placeholder = st.empty()
 
-        return params
+        return command
 
     def _init_progress(self) -> None:
         """Создаёт виджеты прогресса, используемые callback-ами use-case слоя."""
@@ -134,10 +141,10 @@ class StreamlitUI:
         self.status_text = st.empty()
         self.stats_placeholder = st.empty()
 
-    def _update_progress(self, value: float, status: str) -> None:
-        """Обновляет визуальный прогресс по контракту `ProgressCallback`."""
-        self.progress_bar.progress(int(value))
-        self.status_text.markdown(f"**Статус:** {status}")
+    def _update_progress(self, update: ProgressUpdate) -> None:
+        """Обновляет визуальный прогресс по контракту `ProgressUpdate`."""
+        self.progress_bar.progress(int(update.percent))
+        self.status_text.markdown(f"**Статус:** {update.message}")
 
     def _show_stats(self, total: int, processed: int) -> None:
         """Публикует в sidebar метрики: всего, обработано и осталось."""
@@ -150,52 +157,48 @@ class StreamlitUI:
         """
         )
 
-    def render_results(self, data: pd.DataFrame, filename: str) -> None:
+    def render_results(self, result: ProductsParseResult) -> None:
         """Показывает результаты сценария `start` и готовит Excel-файл в памяти."""
         st.success("✅ Парсинг успешно завершен!")
 
         with st.expander("📁 Просмотр данных", expanded=True):
-            st.dataframe(data, width="stretch", height=400)
+            st.dataframe(result.dataframe, width="stretch", height=400)
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            data.to_excel(writer, index=False, sheet_name="Products")
+            result.dataframe.to_excel(writer, index=False, sheet_name="Products")
 
         st.download_button(
             label="💾 Скачать Excel",
             data=output.getvalue(),
-            file_name=filename,
+            file_name=result.output_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
         )
 
-    def render_product_list_results(
-        self,
-        stats: Dict[str, Any],
-        excel_content: bytes,
-        filename: str,
-    ) -> None:
+    def render_product_list_results(self, result: CategoryListParseResult) -> None:
         """Отображает сводку batch-парсинга категорий и отчёт для скачивания."""
+        stats: CategoryParseStats = result.stats
         st.success("✅ Обработка списка ссылок завершена!")
         st.subheader("📊 Итоговая статистика")
         st.markdown(
             f"""
-        - Режим: **{stats.get('mode', 'basic')}**
-        - Всего ссылок: **{stats['total']}**
-        - Успешно обработано: **{stats['success']}**
-        - Ошибок: **{stats['failed']}**
-        - Товаров собрано: **{stats['total_products']}**
+        - Режим: **{stats.parser_mode.value}**
+        - Всего ссылок: **{stats.total_categories}**
+        - Успешно обработано: **{stats.success_categories}**
+        - Ошибок: **{stats.failed_categories}**
+        - Товаров собрано: **{stats.total_products}**
         """
         )
 
-        if stats["failed"]:
+        if stats.failed_categories:
             with st.expander("⚠️ Ссылки с ошибками"):
-                st.write(stats["failed_links"])
+                st.write(list(stats.failed_links))
 
         st.download_button(
             label="💾 Скачать Excel",
-            data=excel_content,
-            file_name=filename,
+            data=result.excel_bytes,
+            file_name=result.output_filename,
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
         )
@@ -204,35 +207,38 @@ class StreamlitUI:
         """Выполняет основной UI-сценарий: выбор режима, запуск и вывод результата."""
         st.title("🔍 Web Parser")
 
-        params = self.render_sidebar()
-        if not params:
+        command = self.render_sidebar()
+        if not command:
             return
 
         self._init_progress()
         try:
-            if params["mode"] == "start":
+            if isinstance(command, ParseProductsCommand):
                 result = self._parse_products_use_case.execute(
-                    url=params["url"],
-                    output_filename=params["output"],
+                    command=command,
                     on_progress=self._update_progress,
                     on_stats=self._show_stats,
                     on_page_request=self._fetch_with_spinner,
                     on_item_error=self._on_product_item_error,
                 )
-                self.render_results(*result)
+                self.render_results(result)
             else:
+                batch_command = command
                 self._update_progress(
-                    5,
-                    f"Инициализация ProductListParser (режим: {params.get('parser_mode', 'basic')})…",
+                    ProgressUpdate(
+                        percent=5,
+                        message=(
+                            "Инициализация ProductListParser "
+                            f"(режим: {batch_command.parser_mode.value})…"
+                        ),
+                    )
                 )
-                self._update_progress(20, "Сканирование страниц и сбор данных…")
-                stats, excel_data, out_file = self._parse_category_list_use_case.execute(
-                    links=params["links"],
-                    output_filename=params["output"],
-                    parser_mode=params.get("parser_mode", "basic"),
+                self._update_progress(
+                    ProgressUpdate(percent=20, message="Сканирование страниц и сбор данных…")
                 )
-                self._update_progress(95, "Формирование отчёта…")
-                self.render_product_list_results(stats, excel_data, out_file)
+                result = self._parse_category_list_use_case.execute(batch_command)
+                self._update_progress(ProgressUpdate(percent=95, message="Формирование отчёта…"))
+                self.render_product_list_results(result)
         except Exception as exc:  # noqa: BLE001
             st.error(f"⛔ Ошибка: {exc}")
         finally:
@@ -247,9 +253,12 @@ class StreamlitUI:
             return fetch_page_callable(link)
 
     @staticmethod
-    def _on_product_item_error(idx: int, error: Exception) -> None:
+    def _on_product_item_error(error_info: ItemErrorInfo) -> None:
         """Показывает ошибку обработки товара, не прерывая общий прогон."""
-        st.warning(f"Пропущен товар {idx}: {error}")
+        st.warning(
+            f"Пропущен товар {error_info.item_index} ({error_info.item_ref}): "
+            f"{error_info.error_type} - {error_info.message}"
+        )
 
 
 def create_streamlit_ui(parser: WebParser) -> StreamlitUI:

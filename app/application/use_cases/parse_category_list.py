@@ -15,10 +15,12 @@
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional, Tuple
-
-from parser_domain.web_parser import WebParser
 from parser_domain.product_list_parser import ProductListParser
+from parser_domain.types import (
+    CategoryListParseResult,
+    ParseCategoryListCommand,
+)
+from parser_domain.web_parser import WebParser
 
 
 class ParseCategoryListUseCase:
@@ -28,27 +30,21 @@ class ParseCategoryListUseCase:
         """Сохраняет общий `WebParser` для повторного использования в дочернем парсере."""
         self._parser = parser
 
-    def execute(
-        self,
-        links: list[str],
-        output_filename: str,
-        parser_mode: str = "basic",
-    ) -> Tuple[Dict[str, Any], bytes, str]:
-        """Запускает batch-парсинг и возвращает `(stats, excel_bytes, output_filename)`.
-
-        Контракт:
-            - бросает `Exception`, если список ссылок пуст;
-            - режим парсинга передаётся без преобразования в `ProductListParser`.
-        """
-        if len(links) == 0:
+    def execute(self, command: ParseCategoryListCommand) -> CategoryListParseResult:
+        """Запускает batch-парсинг и возвращает типизированный `CategoryListParseResult`."""
+        if len(command.links) == 0:
             raise Exception("Список ссылок пуст")
 
         list_parser = ProductListParser(
-            links=links,
-            output_file=output_filename,
+            links=list(command.links),
+            output_file=command.output_filename,
             base_parser=self._parser,
-            mode=parser_mode,
+            mode=command.parser_mode,
         )
         _, stats = list_parser.run()
         excel_bytes = list_parser.save_results()
-        return stats, excel_bytes, output_filename
+        return CategoryListParseResult(
+            stats=stats,
+            excel_bytes=excel_bytes,
+            output_filename=command.output_filename,
+        )

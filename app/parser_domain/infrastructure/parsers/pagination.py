@@ -17,16 +17,15 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import Generator, Tuple
+from collections.abc import Generator
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
-from bs4 import BeautifulSoup
-
 from parser_domain.infrastructure.http_client.client import HttpClient
+from parser_domain.types import CategoryPageRef
 
 
 class CategoryPaginator:
-    """Итератор страниц категории с пошаговой выдачей `(index, url, soup)`."""
+    """Итератор страниц категории с пошаговой выдачей `CategoryPageRef`."""
 
     def __init__(self, http_client: HttpClient) -> None:
         """Сохраняет HTTP-клиент, используемый для всех запросов пагинации."""
@@ -49,22 +48,19 @@ class CategoryPaginator:
         new_query = urlencode(query, doseq=True)
         return urlunparse(parsed._replace(path=path, query=new_query))
 
-    def iter_paginated_pages(
-        self,
-        base_url: str,
-    ) -> Generator[Tuple[int, str, BeautifulSoup], None, None]:
+    def iter_paginated_pages(self, base_url: str) -> Generator[CategoryPageRef, None, None]:
         """Итерирует страницы категории до отсутствия блока подгрузки следующей страницы."""
         url = self.normalize_to_first_page(base_url)
         page = 1
 
         while True:
-            logging.info(f"Загружаем страницу {page}: {url}")
+            logging.info("Загружаем страницу %d: %s", page, url)
             soup = self._http_client.get_soup(url)
             if not soup:
-                logging.warning(f"Ошибка загрузки страницы {page}: {url}")
+                logging.warning("Ошибка загрузки страницы %d: %s", page, url)
                 return
 
-            yield page, url, soup
+            yield CategoryPageRef(page_index=page, page_url=url, soup=soup)
 
             show_more = soup.select_one("div.cnc-pagination__show-more")
             if not show_more:

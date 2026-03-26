@@ -1,7 +1,7 @@
 """Извлечение фиксированных полей из карточки каталога формата V2.
 
 Роль и ответственность:
-    - считывает имя, бренд, артикул, цену и наличие из DOM-блока V2;
+    - считывает имя, бренд, цену и ссылку товара из DOM-блока V2;
     - применяет внешние нормализаторы текста и цены.
 
 Границы:
@@ -14,9 +14,11 @@
 
 from __future__ import annotations
 
-from typing import Callable, Dict
+from typing import Callable
 
 from bs4 import Tag
+
+from parser_domain.types import ProductCardBase
 
 
 class CardExtractorV2:
@@ -31,8 +33,8 @@ class CardExtractorV2:
         self._clean_text = clean_text
         self._clean_price = clean_price
 
-    def extract(self, name_div: Tag) -> Dict[str, str] | None:
-        """Извлекает фиксированные поля данных из блока карточки v2."""
+    def extract(self, name_div: Tag) -> ProductCardBase | None:
+        """Извлекает базовую карточку `ProductCardBase` из блока v2."""
         if not name_div or not name_div.a:
             return None
 
@@ -40,14 +42,19 @@ class CardExtractorV2:
             "div",
             class_="cnc-short-list-product__info",
         )
+        if not name_place or not name_place.a:
+            return None
         name = self._clean_text(name_place.a.get_text())
+
+        product_url = str(name_div.a.get("href", "")).strip()
+        if not product_url:
+            return None
 
         brand_block = name_div.find_next(
             "div",
             class_="cnc-short-list-product__short-info",
         )
         brand = "Н/Д"
-        article = "Н/Д"
         if brand_block:
             brand_link = brand_block.select_one(
                 "div.cnc-short-list-product__brand-name"
@@ -55,27 +62,12 @@ class CardExtractorV2:
             if brand_link:
                 brand = self._clean_text(brand_link.get_text())
 
-            span_article = brand_block.find("span", class_="cnc-sku__product-code")
-            if span_article:
-                article = f"119-{self._clean_text(span_article.get_text())}"
-
         price_span = name_div.find_next("span", class_="ty-price")
         price = self._clean_price(price_span.get_text()) if price_span else "Н/Д"
 
-        avail_p = name_div.find_next(
-            "span",
-            class_="cnc-product-amount__status",
+        return ProductCardBase(
+            name=name,
+            brand=brand,
+            price=price,
+            product_url=product_url,
         )
-        availability = "Н/Д"
-        if avail_p:
-            avail_span = avail_p.find("span")
-            if avail_span:
-                availability = self._clean_text(avail_span.get_text())
-
-        return {
-            "Название": name,
-            "Бренд": brand,
-            "Артикул": article,
-            "Цена": price,
-            "Наличие": availability,
-        }

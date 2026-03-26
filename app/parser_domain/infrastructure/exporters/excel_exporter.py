@@ -17,7 +17,7 @@ from __future__ import annotations
 import logging
 from io import BytesIO
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Mapping
 
 import pandas as pd
 
@@ -26,22 +26,22 @@ class ExcelExporter:
     """Сервис записи табличных структур в формат XLSX."""
 
     @staticmethod
-    def save(data: List[Dict], filename: str) -> None:
+    def save(data: list[Mapping[str, str]], filename: str) -> None:
         """Сохраняет один табличный набор в файл Excel на диске."""
         try:
             dataframe = pd.DataFrame(data)
             dataframe.to_excel(filename, index=False)
-            logging.info(f"Файл {filename} сохранён ({len(dataframe.columns)} столбцов)")
+            logging.info("Файл %s сохранён (%d столбцов)", filename, len(dataframe.columns))
         except Exception as error:  # noqa: BLE001
-            logging.error(f"Ошибка сохранения: {str(error)}")
+            logging.error("Ошибка сохранения: %s", str(error))
 
     @staticmethod
-    def save_sheets(sheet_data: Dict[str, List[Dict[str, Any]]], filename: str) -> bytes:
+    def save_sheets(sheet_data: Mapping[str, list[Mapping[str, str]]], filename: str) -> bytes:
         """Сохраняет набор листов в XLSX и возвращает содержимое файла в `bytes`."""
         if not sheet_data:
             raise RuntimeError("Нет данных для сохранения. Сначала вызовите run().")
 
-        logging.info(f"Сохраняем результаты в {filename}")
+        logging.info("Сохраняем результаты в %s", filename)
         buffer = BytesIO()
 
         with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
@@ -53,6 +53,6 @@ class ExcelExporter:
 
         buffer.seek(0)
         Path(filename).write_bytes(buffer.getvalue())
-        logging.info(f"Файл {Path(filename).name} создан ({len(sheet_data)} листов)")
+        logging.info("Файл %s создан (%d листов)", Path(filename).name, len(sheet_data))
         buffer.seek(0)
         return buffer.getvalue()

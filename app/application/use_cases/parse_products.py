@@ -15,16 +15,23 @@
 from __future__ import annotations
 
 import time
-from typing import Any, Callable, Dict, Optional, Tuple
+from collections.abc import Callable
 
 import pandas as pd
 
+from parser_domain.types import (
+    ItemErrorInfo,
+    ParseProductsCommand,
+    ProductDetails,
+    ProductsParseResult,
+    ProgressUpdate,
+)
 from parser_domain.web_parser import WebParser
 
-ProgressCallback = Callable[[float, str], None]
+ProgressCallback = Callable[[ProgressUpdate], None]
 StatsCallback = Callable[[int, int], None]
-ProcessPageCallback = Callable[[str, Callable[[str], Any]], Any]
-ErrorCallback = Callable[[int, Exception], None]
+ProcessPageCallback = Callable[[str, Callable[[str], object]], object]
+ErrorCallback = Callable[[ItemErrorInfo], None]
 
 
 class ParseProductsUseCase:
@@ -34,37 +41,51 @@ class ParseProductsUseCase:
         """Фиксирует зависимость на доменный парсер, реализующий операции чтения данных."""
         self._parser = parser
 
+    @staticmethod
+    def _detail_to_row(details: ProductDetails) -> dict[str, str]:
+        """Преобразует `ProductDetails` в плоскую строку отчёта."""
+        row: dict[str, str] = {
+            "Товар": details.title,
+            "Артикул": details.article,
+            "Бренд": details.brand,
+            "Цена": details.price,
+            "Наличие": details.availability,
+            "Описание": details.description,
+        }
+        row.update(dict(details.features))
+        return row
+
     def execute(
         self,
-        url: str,
-        output_filename: str,
-        on_progress: Optional[ProgressCallback] = None,
-        on_stats: Optional[StatsCallback] = None,
-        on_page_request: Optional[ProcessPageCallback] = None,
-        on_item_error: Optional[ErrorCallback] = None,
-    ) -> Tuple[pd.DataFrame, str]:
-        """Выполняет парсинг товаров и возвращает `(DataFrame, output_filename)`.
-
-        Контракт:
-            - бросает `Exception`, если ссылки товаров не найдены или итоговые данные пусты;
-            - вызывает callback-и только если они переданы;
-            - пропускает ошибки отдельных карточек через `on_item_error`, не прерывая цикл.
-        """
-        links = self._parser.iter_category_product_links(url)
+        command: ParseProductsCommand,
+        on_progress: ProgressCallback | None = None,
+        on_stats: StatsCallback | None = None,
+        on_page_request: ProcessPageCallback | None = None,
+        on_item_error: ErrorCallback | None = None,
+    ) -> ProductsParseResult:
+        """Выполняет парсинг товаров и возвращает типизированный `ProductsParseResult`."""
+        links = self._parser.iter_category_product_links(command.category_url)
         if not links:
             raise Exception("Ссылки на товары не найдены")
 
         if on_progress:
-            on_progress(15, "Поиск ссылок на товары…")
+            on_progress(ProgressUpdate(percent=15, message="Поиск ссылок на товары…"))
 
         total = len(links)
-        products: list[Dict[str, Any]] = []
+        products: list[dict[str, str]] = []
 
         for idx, link in enumerate(links, 1):
             try:
                 if on_progress:
                     progress = 15 + int(70 * (idx / total))
-                    on_progress(progress, f"Обработка товара {idx}/{total}")
+                    on_progress(
+                        ProgressUpdate(
+                            percent=progress,
+                            message=f"Обработка товара {idx}/{total}",
+                            current=idx,
+                            total=total,
+                        )
+                    )
                 if on_stats:
                     on_stats(total, idx)
                 if on_page_request:
@@ -72,18 +93,29 @@ class ParseProductsUseCase:
                 else:
                     product_page = self._parser.get_page(link)
                 if product_page:
-                    products.append(self._parser.parse_product(product_page))
+                    details = self._parser.parse_product(product_page)
+                    products.append(self._detail_to_row(details))
 
                 time.sleep(0.1)
             except Exception as ex:  # noqa: BLE001
                 if on_item_error:
-                    on_item_error(idx, ex)
+                    on_item_error(
+                        ItemErrorInfo(
+                            item_index=idx,
+                            item_ref=link,
+                            error_type=type(ex).__name__,
+                            message=str(ex),
+                        )
+                    )
 
         if on_progress:
-            on_progress(95, "Формирование отчёта…")
+            on_progress(ProgressUpdate(percent=95, message="Формирование отчёта…"))
 
         frame = pd.DataFrame(products)
         if frame.empty:
             raise Exception("Не удалось собрать данные")
 
-        return frame, output_filename
+        return ProductsParseResult(
+            dataframe=frame,
+            output_filename=command.output_filename,
+        )
