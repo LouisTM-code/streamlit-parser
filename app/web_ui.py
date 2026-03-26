@@ -20,6 +20,7 @@ from typing import Any, Dict, Optional
 import pandas as pd
 import streamlit as st
 
+from application.dto.tracing import ItemErrorEvent, ProgressEvent, StatsEvent
 from application.use_cases.parse_category_list import ParseCategoryListUseCase
 from application.use_cases.parse_products import ParseProductsUseCase
 from parser_domain.web_parser import WebParser
@@ -134,19 +135,19 @@ class StreamlitUI:
         self.status_text = st.empty()
         self.stats_placeholder = st.empty()
 
-    def _update_progress(self, value: float, status: str) -> None:
-        """Обновляет визуальный прогресс по контракту `ProgressCallback`."""
-        self.progress_bar.progress(int(value))
-        self.status_text.markdown(f"**Статус:** {status}")
+    def _update_progress(self, event: ProgressEvent) -> None:
+        """Обновляет визуальный прогресс по событию `ProgressEvent`."""
+        self.progress_bar.progress(int(event.value))
+        self.status_text.markdown(f"**Статус:** {event.status}")
 
-    def _show_stats(self, total: int, processed: int) -> None:
+    def _show_stats(self, event: StatsEvent) -> None:
         """Публикует в sidebar метрики: всего, обработано и осталось."""
         self.stats_placeholder.markdown(
             f"""
         ### 📊 Прогресс
-        - Всего: **{total}**
-        - Обработано: **{processed}**
-        - Осталось: **{total - processed}**
+        - Всего: **{event.total}**
+        - Обработано: **{event.processed}**
+        - Осталось: **{event.total - event.processed}**
         """
         )
 
@@ -222,16 +223,23 @@ class StreamlitUI:
                 self.render_results(*result)
             else:
                 self._update_progress(
-                    5,
-                    f"Инициализация ProductListParser (режим: {params.get('parser_mode', 'basic')})…",
+                    ProgressEvent(
+                        value=5,
+                        status=(
+                            f"Инициализация ProductListParser (режим: "
+                            f"{params.get('parser_mode', 'basic')})…"
+                        ),
+                    )
                 )
-                self._update_progress(20, "Сканирование страниц и сбор данных…")
+                self._update_progress(
+                    ProgressEvent(value=20, status="Сканирование страниц и сбор данных…")
+                )
                 stats, excel_data, out_file = self._parse_category_list_use_case.execute(
                     links=params["links"],
                     output_filename=params["output"],
                     parser_mode=params.get("parser_mode", "basic"),
                 )
-                self._update_progress(95, "Формирование отчёта…")
+                self._update_progress(ProgressEvent(value=95, status="Формирование отчёта…"))
                 self.render_product_list_results(stats, excel_data, out_file)
         except Exception as exc:  # noqa: BLE001
             st.error(f"⛔ Ошибка: {exc}")
@@ -247,9 +255,9 @@ class StreamlitUI:
             return fetch_page_callable(link)
 
     @staticmethod
-    def _on_product_item_error(idx: int, error: Exception) -> None:
+    def _on_product_item_error(event: ItemErrorEvent) -> None:
         """Показывает ошибку обработки товара, не прерывая общий прогон."""
-        st.warning(f"Пропущен товар {idx}: {error}")
+        st.warning(f"Пропущен товар {event.index}: {event.error}")
 
 
 def create_streamlit_ui(parser: WebParser) -> StreamlitUI:

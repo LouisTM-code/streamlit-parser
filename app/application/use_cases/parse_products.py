@@ -19,12 +19,17 @@ from typing import Any, Callable, Dict, Optional, Tuple
 
 import pandas as pd
 
+from application.dto.tracing import (
+    ErrorCallback,
+    ItemErrorEvent,
+    ProgressCallback,
+    ProgressEvent,
+    StatsCallback,
+    StatsEvent,
+)
 from parser_domain.web_parser import WebParser
 
-ProgressCallback = Callable[[float, str], None]
-StatsCallback = Callable[[int, int], None]
 ProcessPageCallback = Callable[[str, Callable[[str], Any]], Any]
-ErrorCallback = Callable[[int, Exception], None]
 
 
 class ParseProductsUseCase:
@@ -55,7 +60,7 @@ class ParseProductsUseCase:
             raise Exception("Ссылки на товары не найдены")
 
         if on_progress:
-            on_progress(15, "Поиск ссылок на товары…")
+            on_progress(ProgressEvent(value=15, status="Поиск ссылок на товары…"))
 
         total = len(links)
         products: list[Dict[str, Any]] = []
@@ -64,9 +69,11 @@ class ParseProductsUseCase:
             try:
                 if on_progress:
                     progress = 15 + int(70 * (idx / total))
-                    on_progress(progress, f"Обработка товара {idx}/{total}")
+                    on_progress(
+                        ProgressEvent(value=progress, status=f"Обработка товара {idx}/{total}")
+                    )
                 if on_stats:
-                    on_stats(total, idx)
+                    on_stats(StatsEvent(total=total, processed=idx))
                 if on_page_request:
                     product_page = on_page_request(link, self._parser.get_page)
                 else:
@@ -77,10 +84,10 @@ class ParseProductsUseCase:
                 time.sleep(0.1)
             except Exception as ex:  # noqa: BLE001
                 if on_item_error:
-                    on_item_error(idx, ex)
+                    on_item_error(ItemErrorEvent(index=idx, error=ex))
 
         if on_progress:
-            on_progress(95, "Формирование отчёта…")
+            on_progress(ProgressEvent(value=95, status="Формирование отчёта…"))
 
         frame = pd.DataFrame(products)
         if frame.empty:
