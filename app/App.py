@@ -1,20 +1,23 @@
-from Parse import WebParser
-from web_ui import StreamlitUI
+"""Точка входа Streamlit-приложения.
 
-def main():
-    parser = WebParser()
-    
-    is_streamlit_running()
-    ui = StreamlitUI(parser)
-    ui.run()
+Роль и ответственность:
+    - экспортирует функцию `main` для запуска UI-сценария.
 
-def is_streamlit_running() -> bool:
-    """Проверка запущен ли Streamlit"""
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-        return get_script_run_ctx() is not None
-    except ImportError:
-        return False
+Границы:
+    - не создаёт инфраструктурные зависимости парсера вручную;
+    - не содержит бизнес-логики парсинга.
+
+Взаимодействие с другими ролями:
+    - делегирует запуск в `web_ui.run_streamlit_ui`.
+"""
+
+from web_ui import run_streamlit_ui
+
+
+def main() -> None:
+    """Запускает UI-приложение через верхнеуровневый фасад веб-слоя."""
+    run_streamlit_ui()
+
 
 if __name__ == "__main__":
     main()

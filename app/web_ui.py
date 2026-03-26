@@ -1,43 +1,70 @@
-# ui/web_ui.py
+"""UI-слой на Streamlit для запуска сценариев парсинга.
+
+Роль и ответственность:
+    - собирает пользовательские параметры и отображает результаты;
+    - связывает виджеты интерфейса с use-case слоя приложения.
+
+Границы:
+    - не выполняет HTTP-запросы напрямую;
+    - не содержит доменную логику извлечения данных из HTML.
+
+Взаимодействие с другими ролями:
+    - вызывает `ParseProductsUseCase` и `ParseCategoryListUseCase`;
+    - использует `streamlit` как механизм рендера и событий.
+"""
+
 import time
 from io import BytesIO
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Optional
 
 import pandas as pd
 import streamlit as st
 
-from Parse import WebParser
-from product_list_parser import ProductListParser
+from application.dto.tracing import ItemErrorEvent, ProgressEvent, StatsEvent
+from application.use_cases.parse_category_list import ParseCategoryListUseCase
+from application.use_cases.parse_products import ParseProductsUseCase
+from parser_domain.types import (
+    CategoryListParseResult,
+    CategoryParseStats,
+    ParseCategoryListCommand,
+    ParseProductsCommand,
+    ParserMode,
+    ProductsParseResult,
+)
+from parser_domain.web_parser import WebParser
 
 
 class StreamlitUI:
-    """
-    Класс UI‑обёртки для работы со Streamlit.
+    """Фасад взаимодействия с пользователем в Streamlit.
 
-    Отвечает за:
-        - конфигурацию страницы;
-        - отрисовку вкладок/форм;
-        - запуск соответствующих режимов парсинга;
-        - отображение прогресса и результатов.
+    Роль и ответственность:
+        - управляет жизненным циклом UI: параметры → запуск → прогресс → результат;
+        - хранит ссылки на плейсхолдеры прогресса в рамках сессии.
+
+    Границы:
+        - не валидирует HTML-разметку источника;
+        - не определяет структуру доменных сущностей парсинга.
+
+    Взаимодействие с другими ролями:
+        - оркестрирует вызовы use-case и отображает их выходные данные.
     """
 
-    def __init__(self, parser: WebParser):
-        """
-        Параметры:
-            parser: Экземпляр WebParser, переиспользуемый во всех режимах.
-        """
-        self.parser = parser
+    def __init__(
+        self,
+        parse_products_use_case: ParseProductsUseCase,
+        parse_category_list_use_case: ParseCategoryListUseCase,
+    ):
+        """Сохраняет use-case зависимости и настраивает конфигурацию страницы."""
+        self._parse_products_use_case = parse_products_use_case
+        self._parse_category_list_use_case = parse_category_list_use_case
         self._setup_page_config()
         self.progress_bar = None
         self.status_text = None
         self.stats_placeholder = None
 
-    # ------------------------------------------------------------------ #
-    #                        BASIC PAGE CONFIG                           #
-    # ------------------------------------------------------------------ #
     @staticmethod
     def _setup_page_config() -> None:
-        """Базовая конфигурация страницы Streamlit."""
+        """Применяет глобальные параметры страницы Streamlit до первого рендера."""
         st.set_page_config(
             page_title="Web Parser",
             layout="centered",
@@ -45,51 +72,25 @@ class StreamlitUI:
             initial_sidebar_state="expanded",
         )
 
-    # ------------------------------------------------------------------ #
-    #                        SIDEBAR / TABS                              #
-    # ------------------------------------------------------------------ #
-    def render_sidebar(self) -> Optional[dict]:
-        """
-        Отрисовка боковой панели с двумя вкладками:
-
-        1. Парсинг Характеристик  (оригинальный режим, по стартовому URL)
-        2. Табличный-парсинг Каталога (ProductListParser, список ссылок категорий)
-
-        Возвращает:
-            Словарь параметров выбранного режима либо None, если ещё ничего не запущено.
-        """
+    def render_sidebar(self) -> Optional[object]:
+        """Строит sidebar и возвращает команду запуска выбранного сценария."""
         with st.sidebar:
             st.title("⚙️ Управление парсером")
             tab_start, tab_list = st.tabs(
                 ["Парсинг Характеристик", "Табличный-парсинг Каталога"]
             )
 
-            params: Optional[dict] = None
+            command: Optional[object] = None
 
-            # ---------- Вкладка 1 – Стартовый парсер ------------------- #
             with tab_start:
-                url = st.text_input(
-                    "Стартовый URL",
-                    "https://example.com",
-                    key="start_url",
-                )
-                output_file = st.text_input(
-                    "Имя файла",
-                    "products.xlsx",
-                    key="start_output",
-                )
-                if st.button(
-                    "🚀 Начать парсинг",
-                    key="start_button",
-                    width="stretch",
-                ):
-                    params = {
-                        "mode": "start",  # UI-режим
-                        "url": url,
-                        "output": output_file,
-                    }
+                url = st.text_input("Стартовый URL", "https://example.com", key="start_url")
+                output_file = st.text_input("Имя файла", "products.xlsx", key="start_output")
+                if st.button("🚀 Начать парсинг", key="start_button", width="stretch"):
+                    command = ParseProductsCommand(
+                        category_url=url,
+                        output_filename=output_file,
+                    )
 
-            # ---------- Вкладка 2 – ProductListParser ------------------ #
             with tab_list:
                 links_text = st.text_area(
                     "Ссылки категорий (по одной на строке)",
@@ -98,10 +99,9 @@ class StreamlitUI:
                     key="links_input",
                 )
 
-                # Новый выбор режима табличного парсинга
                 mode_display_to_value = {
-                    "basic (стандартный)": "basic",
-                    "fulltable (расширенный)": "fulltable",
+                    "basic (стандартный)": ParserMode.BASIC,
+                    "fulltable (расширенный)": ParserMode.FULLTABLE,
                 }
                 mode_label = st.selectbox(
                     "Режим табличного парсинга",
@@ -121,259 +121,154 @@ class StreamlitUI:
                     "product_list.xlsx",
                     key="links_output",
                 )
-                if st.button(
-                    "🚀 Запустить",
-                    key="list_button",
-                    width="stretch",
-                ):
-                    raw_links = [
-                        ln for ln in links_text.splitlines() if ln.strip()
-                    ]
-                    params = {
-                        "mode": "productlist",       # UI-режим
-                        "parser_mode": parser_mode,  # режим ProductListParser
-                        "links": raw_links,
-                        "output": output_file_links,
-                    }
+                if st.button("🚀 Запустить", key="list_button", width="stretch"):
+                    raw_links = tuple(ln for ln in links_text.splitlines() if ln.strip())
+                    command = ParseCategoryListCommand(
+                        links=raw_links,
+                        output_filename=output_file_links,
+                        parser_mode=parser_mode,
+                    )
 
             st.markdown("---")
             self.stats_placeholder = st.empty()
 
-        return params
+        return command
 
-    # ------------------------------------------------------------------ #
-    #                       COMMON PROGRESS HELPERS                      #
-    # ------------------------------------------------------------------ #
     def _init_progress(self) -> None:
-        """Инициализация элементов прогресса."""
+        """Создаёт виджеты прогресса, используемые callback-ами use-case слоя."""
         self.progress_bar = st.progress(0)
         self.status_text = st.empty()
         self.stats_placeholder = st.empty()
 
-    def _update_progress(self, value: float, status: str) -> None:
-        """
-        Обновление индикатора прогресса.
+    def _update_progress(self, event: ProgressEvent) -> None:
+        """Обновляет визуальный прогресс по контракту `ProgressEvent`."""
+        self.progress_bar.progress(int(event.progress))
+        self.status_text.markdown(f"**Статус:** {event.status}")
 
-        Параметры:
-            value: Число от 0 до 100 (процент выполнения).
-            status: Текстовый статус.
-        """
-        self.progress_bar.progress(int(value))
-        self.status_text.markdown(f"**Статус:** {status}")
-
-    def _show_stats(self, total: int, processed: int) -> None:
-        """
-        Отображение краткой статистики в сайдбаре.
-
-        Параметры:
-            total: Общее количество элементов.
-            processed: Обработанное количество элементов.
-        """
+    def _show_stats(self, event: StatsEvent) -> None:
+        """Публикует в sidebar метрики: всего, обработано и осталось."""
         self.stats_placeholder.markdown(
             f"""
         ### 📊 Прогресс
-        - Всего: **{total}**
-        - Обработано: **{processed}**
-        - Осталось: **{total - processed}**
+        - Всего: **{event.total}**
+        - Обработано: **{event.processed}**
+        - Осталось: **{event.total - event.processed}**
         """
         )
 
-    # ------------------------------------------------------------------ #
-    #                   RENDER RESULTS :  START PARSER                   #
-    # ------------------------------------------------------------------ #
-    def render_results(self, data: pd.DataFrame, filename: str) -> None:
-        """
-        Отрисовка результатов парсинга (оригинальный режим).
-
-        Параметры:
-            data:     DataFrame с результатами.
-            filename: Имя файла для выгрузки Excel.
-        """
+    def render_results(self, result: ProductsParseResult) -> None:
+        """Показывает результаты сценария `start` и готовит Excel-файл в памяти."""
         st.success("✅ Парсинг успешно завершен!")
 
         with st.expander("📁 Просмотр данных", expanded=True):
-            st.dataframe(data, width="stretch", height=400)
+            st.dataframe(result.dataframe, width="stretch", height=400)
 
         output = BytesIO()
         with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-            data.to_excel(writer, index=False, sheet_name="Products")
+            result.dataframe.to_excel(writer, index=False, sheet_name="Products")
 
         st.download_button(
             label="💾 Скачать Excel",
             data=output.getvalue(),
-            file_name=filename,
-            mime=(
-                "application/"
-                "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
+            file_name=result.output_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
         )
 
-    # ------------------------------------------------------------------ #
-    #               RENDER RESULTS :  PRODUCT LIST PARSER                #
-    # ------------------------------------------------------------------ #
-    def render_product_list_results(
-        self,
-        stats: Dict[str, Any],
-        excel_content: bytes,
-        filename: str,
-    ) -> None:
-        """
-        Выводит сводную статистику + кнопку скачивания Excel с несколькими листами.
-
-        Параметры:
-            stats:         Сводная статистика, возвращённая ProductListParser.run().
-            excel_content: Бинарный контент Excel‑файла.
-            filename:      Имя файла для скачивания.
-        """
+    def render_product_list_results(self, result: CategoryListParseResult) -> None:
+        """Отображает сводку batch-парсинга категорий и отчёт для скачивания."""
+        stats: CategoryParseStats = result.stats
         st.success("✅ Обработка списка ссылок завершена!")
         st.subheader("📊 Итоговая статистика")
         st.markdown(
             f"""
-        - Режим: **{stats.get('mode', 'basic')}**
-        - Всего ссылок: **{stats['total']}**
-        - Успешно обработано: **{stats['success']}**
-        - Ошибок: **{stats['failed']}**
-        - Товаров собрано: **{stats['total_products']}**
+        - Режим: **{stats.parser_mode.value}**
+        - Всего ссылок: **{stats.total_categories}**
+        - Успешно обработано: **{stats.success_categories}**
+        - Ошибок: **{stats.failed_categories}**
+        - Товаров собрано: **{stats.total_products}**
         """
         )
 
-        if stats["failed"]:
+        if stats.failed_categories:
             with st.expander("⚠️ Ссылки с ошибками"):
-                st.write(stats["failed_links"])
+                st.write(list(stats.failed_links))
 
-        # кнопка скачивания много‑листового файла
         st.download_button(
             label="💾 Скачать Excel",
-            data=excel_content,
-            file_name=filename,
-            mime=(
-                "application/"
-                "vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            ),
+            data=result.excel_bytes,
+            file_name=result.output_filename,
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             width="stretch",
         )
 
-    # ------------------------------------------------------------------ #
-    #                             MAIN LOOP                              #
-    # ------------------------------------------------------------------ #
     def run(self) -> None:
-        """Главный метод запуска UI‑цикла."""
+        """Выполняет основной UI-сценарий: выбор режима, запуск и вывод результата."""
         st.title("🔍 Web Parser")
 
-        params = self.render_sidebar()
-        if not params:
+        command = self.render_sidebar()
+        if not command:
             return
 
         self._init_progress()
         try:
-            if params["mode"] == "start":
-                result = self._run_parsing(params)
-                if result:
-                    self.render_results(*result)
-            else:  # mode == "productlist"
-                stats, excel_data, out_file = self._run_product_list(params)
-                self.render_product_list_results(stats, excel_data, out_file)
-        except Exception as exc:  # noqa: BLE001 — выводим ошибку пользователю
+            if isinstance(command, ParseProductsCommand):
+                result = self._parse_products_use_case.execute(
+                    command=command,
+                    on_progress=self._update_progress,
+                    on_stats=self._show_stats,
+                    on_page_request=self._fetch_with_spinner,
+                    on_item_error=self._on_product_item_error,
+                )
+                self.render_results(result)
+            else:
+                batch_command = command
+                self._update_progress(
+                    ProgressEvent(
+                        progress=5,
+                        status=(
+                            "Инициализация ProductListParser "
+                            f"(режим: {batch_command.parser_mode.value})…"
+                        ),
+                    )
+                )
+                self._update_progress(
+                    ProgressEvent(progress=20, status="Сканирование страниц и сбор данных…")
+                )
+                result = self._parse_category_list_use_case.execute(batch_command)
+                self._update_progress(ProgressEvent(progress=95, status="Формирование отчёта…"))
+                self.render_product_list_results(result)
+        except Exception as exc:  # noqa: BLE001
             st.error(f"⛔ Ошибка: {exc}")
         finally:
             time.sleep(0.5)
             self.progress_bar.empty()
             self.status_text.empty()
 
-    # ------------------------------------------------------------------ #
-    #                      ORIGINAL START‑PARSER FLOW                    #
-    # ------------------------------------------------------------------ #
-    def _run_parsing(self, params: dict) -> Optional[Tuple[pd.DataFrame, str]]:
-        """
-        Процесс парсинга для стартового URL (оригинальный режим).
+    @staticmethod
+    def _fetch_with_spinner(link: str, fetch_page_callable):
+        """Оборачивает загрузку одной страницы в spinner без изменения сигнатуры callback."""
+        with st.spinner(f"Обработка: {link.split('/')[-1]}"):
+            return fetch_page_callable(link)
 
-        Параметры:
-            params: Словарь параметров из сайдбара, ожидает ключи:
-                - "url":    стартовый URL категории;
-                - "output": имя выходного файла.
+    @staticmethod
+    def _on_product_item_error(event: ItemErrorEvent) -> None:
+        """Показывает ошибку обработки товара, не прерывая общий прогон."""
+        st.warning(f"Пропущен товар {event.index} {event.error}")
 
-        Возвращает:
-            Кортеж (DataFrame, имя файла) либо None.
-        """
-        links = self.parser.iter_category_product_links(params["url"])
-        if not links:
-            raise Exception("Ссылки на товары не найдены")
 
-        self._update_progress(15, "Поиск ссылок на товары…")
-        total = len(links)
-        products: List[Dict[str, Any]] = []
+def create_streamlit_ui(parser: WebParser) -> StreamlitUI:
+    """Собирает экземпляр UI с use-case, разделяющими общий `WebParser`."""
+    parse_products_use_case = ParseProductsUseCase(parser=parser)
+    parse_category_list_use_case = ParseCategoryListUseCase(parser=parser)
+    return StreamlitUI(
+        parse_products_use_case=parse_products_use_case,
+        parse_category_list_use_case=parse_category_list_use_case,
+    )
 
-        for idx, link in enumerate(links, 1):
-            try:
-                progress = 15 + int(70 * (idx / total))
-                self._update_progress(
-                    progress,
-                    f"Обработка товара {idx}/{total}",
-                )
-                self._show_stats(total, idx)
 
-                with st.spinner(f"Обработка: {link.split('/')[-1]}"):
-                    product_page = self.parser.get_page(link)
-                    if product_page:
-                        products.append(self.parser.parse_product(product_page))
-                    # Имитация небольшой задержки, чтобы прогресс был нагляднее
-                    time.sleep(0.1)
-            except Exception as ex:  # noqa: BLE001
-                st.warning(f"Пропущен товар {idx}: {ex}")
-
-        self._update_progress(95, "Формирование отчёта…")
-        df = pd.DataFrame(products)
-        if df.empty:
-            raise Exception("Не удалось собрать данные")
-
-        return df, params["output"]
-
-    # ------------------------------------------------------------------ #
-    #                 NEW FLOW  –  PRODUCT LIST PARSER                   #
-    # ------------------------------------------------------------------ #
-    def _run_product_list(
-        self,
-        params: dict,
-    ) -> Tuple[Dict[str, Any], bytes, str]:
-        """
-        Обработка произвольного списка URL‑адресов категорий.
-
-        Для каждой категории:
-            - обходит /page-1/, /page-2/, ... (логика в ProductListParser);
-            - агрегирует все страницы категории в один лист Excel.
-
-        Параметры:
-            params: Словарь параметров из сайдбара, ожидает ключи:
-                - "links":        список URL категорий;
-                - "output":       имя выходного файла;
-                - "parser_mode":  режим ProductListParser ("basic"/"fulltable").
-
-        Возвращает:
-            (stats, excel_bytes, output_filename)
-        """
-        links: List[str] = params["links"]
-        total = len(links)
-        if total == 0:
-            raise Exception("Список ссылок пуст")
-
-        parser_mode: str = params.get("parser_mode", "basic")
-
-        self._update_progress(
-            5,
-            f"Инициализация ProductListParser (режим: {parser_mode})…",
-        )
-        pl_parser = ProductListParser(
-            links=links,
-            output_file=params["output"],
-            base_parser=self.parser,
-            mode=parser_mode,
-        )
-
-        # весь обход /page-N/ и сбор строк — внутри ProductListParser.run()
-        self._update_progress(20, "Сканирование страниц и сбор данных…")
-        _, stats = pl_parser.run()
-
-        self._update_progress(95, "Формирование отчёта…")
-        excel_bytes = pl_parser.save_results()
-        return stats, excel_bytes, params["output"]
+def run_streamlit_ui() -> None:
+    """Создаёт зависимости по умолчанию и запускает визуальный интерфейс."""
+    parser = WebParser()
+    ui = create_streamlit_ui(parser=parser)
+    ui.run()
