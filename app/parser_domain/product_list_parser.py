@@ -19,7 +19,21 @@ __all__ = ["ProductListParser"]
 
 
 class ProductListParser:
-    """Класс для табличного/каталожного парсинга страниц категорий."""
+    """Парсер списка категорий с накоплением результатов по листам Excel.
+
+    Роль и ответственность:
+        - обходит переданные категории с учётом пагинации;
+        - извлекает строки товаров в режимах `basic` и `fulltable`;
+        - формирует статистику и структуру данных для экспортера.
+
+    Границы:
+        - не выполняет UI-обновления;
+        - не реализует запись Excel напрямую (делегирует `ExcelExporter`).
+
+    Взаимодействие с другими ролями:
+        - использует `WebParser` для доступа к страницам;
+        - использует `CategoryPageParser` для извлечения строк категорий.
+    """
 
     def __init__(
         self,
@@ -28,7 +42,7 @@ class ProductListParser:
         base_parser: WebParser | None = None,
         mode: str = "basic",
     ) -> None:
-        """Инициализирует парсер списка товаров."""
+        """Подготавливает режим, ссылки, парсеры карточек и внутренние буферы результата."""
         self.logger: logging.Logger = self._configure_logger()
         self.parser: WebParser = base_parser or WebParser()
         self.output_file: str = output_file
@@ -56,7 +70,7 @@ class ProductListParser:
 
     @staticmethod
     def _configure_logger() -> logging.Logger:
-        """Выполняет операцию роли «_configure_logger»."""
+        """Создаёт выделенный logger парсера категорий без дублирования обработчиков."""
         logger = logging.getLogger("ProductListParser")
         if not logger.handlers:
             logger.setLevel(logging.INFO)
@@ -87,14 +101,14 @@ class ProductListParser:
         return re.sub(r"[^0-9.,]", "", no_nbsp).replace(" ", "")
 
     def _extract_page_title(self, soup: BeautifulSoup) -> str:
-        """Выполняет операцию роли «_extract_page_title»."""
+        """Извлекает заголовок категории для имени листа; fallback — `Категория`."""
         tag = soup.select_one("h1.cnc-title-xl span")
         if not tag:
             tag = soup.find("h1")
         return self._clean_text(tag.get_text()) if tag else "Категория"
 
     def _make_unique_sheet_name(self, title: str) -> str:
-        """Выполняет операцию роли «_make_unique_sheet_name»."""
+        """Генерирует уникальное имя листа длиной до 31 символа по правилам Excel."""
         safe = re.sub(r"[:\\/?*\[\]]", " ", title).strip()
         if not safe:
             safe = "Sheet"
@@ -117,7 +131,13 @@ class ProductListParser:
         return safe
 
     def run(self) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
-        """Основной цикл обхода всех входных ссылок категорий."""
+        """Выполняет обход категорий и возвращает `(all_products, stats)`.
+
+        Контракт:
+            - в `stats` всегда присутствуют ключи `total`, `success`, `failed`,
+              `failed_links`, `total_products`, `mode`;
+            - успешной считается категория, где разобрана минимум одна страница.
+        """
         all_products: List[Dict[str, Any]] = []
         failed_links: List[str] = []
         success_categories = 0
@@ -169,5 +189,5 @@ class ProductListParser:
         return all_products, stats
 
     def save_results(self) -> bytes:
-        """Выполняет операцию роли «save_results»."""
+        """Сериализует накопленные листы в Excel и возвращает байты файла."""
         return ExcelExporter.save_sheets(self._sheet_data, self.output_file)

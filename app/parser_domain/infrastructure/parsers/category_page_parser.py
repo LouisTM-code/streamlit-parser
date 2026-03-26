@@ -1,4 +1,16 @@
-"""Инфраструктура парсинга страниц категории."""
+"""Парсер HTML-страницы категории в режимах `basic` и `fulltable`.
+
+Роль и ответственность:
+    - агрегирует результаты экстракторов карточек разных версий разметки;
+    - в полном режиме объединяет базовые поля с характеристиками.
+
+Границы:
+    - не управляет пагинацией и сетевыми запросами;
+    - не сохраняет итог в файл.
+
+Взаимодействие с другими ролями:
+    - принимает `CardExtractorV1`, `CardExtractorV2` и `FeatureExtractor` через DI.
+"""
 
 from __future__ import annotations
 
@@ -12,17 +24,7 @@ from parser_domain.infrastructure.parsers.feature_extractor import FeatureExtrac
 
 
 class CategoryPageParser:
-    """Класс CategoryPageParser.
-    
-    Роль и ответственность:
-        - инкапсулирует поведение и состояние своей предметной роли.
-    
-    Границы:
-        - не берёт ответственность внешних оркестраторов и интерфейсов.
-    
-    Взаимодействие с другими ролями:
-        - получает зависимости через конструктор и вызывает их контракты.
-    """
+    """Координатор извлечения строк товаров из одной DOM-страницы категории."""
 
     def __init__(
         self,
@@ -30,13 +32,13 @@ class CategoryPageParser:
         extractor_v2: CardExtractorV2,
         feature_extractor: FeatureExtractor,
     ) -> None:
-        """Сохраняет зависимости экстракторов для парсинга страницы категории."""
+        """Регистрирует стратегии извлечения данных для разных вариантов карточек."""
         self._extractor_v1 = extractor_v1
         self._extractor_v2 = extractor_v2
         self._feature_extractor = feature_extractor
 
     def parse_basic(self, soup: BeautifulSoup) -> List[Dict[str, str]]:
-        """Парсит страницу категории в историческом режиме фиксированных колонок."""
+        """Возвращает фиксированный набор колонок, сохраняя обратную совместимость старого формата."""
         products: List[Dict[str, str]] = []
 
         rows_v1 = soup.select("div.cnc-product-categories-mob-card")
@@ -56,7 +58,7 @@ class CategoryPageParser:
         return products
 
     def parse_full(self, soup: BeautifulSoup) -> List[Dict[str, Any]]:
-        """Парсит страницу категории в режиме полной таблицы."""
+        """Возвращает расширенные строки карточек с объединёнными характеристиками."""
         products: List[Dict[str, Any]] = []
 
         for row in soup.select("div.cnc-product-categories-mob-card"):
@@ -72,7 +74,7 @@ class CategoryPageParser:
         return products
 
     def _extract_row_full(self, row: Tag) -> Dict[str, Any] | None:
-        """Извлекает полные данные строки без изменения исторической базовой логики."""
+        """Собирает одну строку fulltable: базовые поля карточки + динамические характеристики."""
         base_data: Dict[str, Any] | None = self._extractor_v1.extract(row)
         if not base_data:
             base_data = self._extractor_v2.extract(row)
