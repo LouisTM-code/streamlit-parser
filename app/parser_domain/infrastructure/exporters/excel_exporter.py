@@ -1,4 +1,14 @@
-"""Excel export infrastructure."""
+"""Модуль excel_exporter.
+
+Роль и ответственность:
+    - предоставляет публичные элементы этого слоя.
+
+Границы:
+    - не реализует ответственность соседних слоёв.
+
+Взаимодействие с другими ролями:
+    - используется через импорт другими модулями проекта.
+"""
 
 from __future__ import annotations
 
@@ -11,22 +21,21 @@ import pandas as pd
 
 
 class ExcelExporter:
-    """Tabular export role for parser results.
-
-    Responsibility:
-        - serialize list-of-dict payloads into Excel files.
-
-    Boundaries:
-        - does not fetch HTML;
-        - does not parse product/category content.
-
-    Interactions:
-        - can be used by orchestration layers or UI flows after parsing.
+    """Класс ExcelExporter.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     @staticmethod
     def save(data: List[Dict], filename: str) -> None:
-        """Persist parsed data to Excel file with original logging behavior."""
+        """Выполняет операцию роли «save»."""
         try:
             dataframe = pd.DataFrame(data)
             dataframe.to_excel(filename, index=False)
@@ -36,7 +45,7 @@ class ExcelExporter:
 
     @staticmethod
     def save_sheets(sheet_data: Dict[str, List[Dict[str, Any]]], filename: str) -> bytes:
-        """Persist category sheets to Excel and return binary payload."""
+        """Выполняет операцию роли «save_sheets»."""
         if not sheet_data:
             raise RuntimeError("Нет данных для сохранения. Сначала вызовите run().")
 

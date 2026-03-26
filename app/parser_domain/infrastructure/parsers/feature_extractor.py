@@ -1,4 +1,4 @@
-"""Feature extraction infrastructure."""
+"""Инфраструктура извлечения характеристик."""
 
 from __future__ import annotations
 
@@ -8,26 +8,24 @@ from bs4 import Tag
 
 
 class FeatureExtractor:
-    """Extractor role for product feature key-value blocks.
-
-    Responsibility:
-        - extract named feature pairs from product card containers.
-
-    Boundaries:
-        - does not parse base product identity fields;
-        - does not orchestrate page-level parsing flow.
-
-    Interactions:
-        - receives text cleaning callable from parser composition layer;
-        - used by full-card parsing in ``CategoryPageParser``.
+    """Класс FeatureExtractor.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def __init__(self, clean_text: Callable[[str], str]) -> None:
-        """Store text normalization dependency for labels and values."""
+        """Сохраняет зависимость нормализации текста для меток и значений."""
         self._clean_text = clean_text
 
     def extract(self, container: Tag) -> Dict[str, str]:
-        """Extract normalized feature pairs from a product card container."""
+        """Извлекает нормализованные пары характеристик из контейнера карточки товара."""
         features: Dict[str, str] = {}
 
         for feature_block in container.select("div.cnc-product-features__feature"):

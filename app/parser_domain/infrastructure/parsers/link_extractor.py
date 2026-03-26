@@ -1,4 +1,4 @@
-"""Link extraction infrastructure for category pages."""
+"""Инфраструктура извлечения ссылок со страниц категории."""
 
 from __future__ import annotations
 
@@ -9,22 +9,20 @@ from bs4 import BeautifulSoup
 
 
 class LinkExtractor:
-    """Category product-link extraction role.
-
-    Responsibility:
-        - collect product links from supported category selectors;
-        - deduplicate links while preserving first-seen order.
-
-    Boundaries:
-        - does not perform HTTP requests;
-        - does not paginate category pages.
-
-    Interactions:
-        - invoked by ``WebParser`` during category traversal.
+    """Класс LinkExtractor.
+    
+    Роль и ответственность:
+        - инкапсулирует поведение и состояние своей предметной роли.
+    
+    Границы:
+        - не берёт ответственность внешних оркестраторов и интерфейсов.
+    
+    Взаимодействие с другими ролями:
+        - получает зависимости через конструктор и вызывает их контракты.
     """
 
     def extract_links(self, soup: BeautifulSoup) -> List[str]:
-        """Extract absolute product links using two existing selectors."""
+        """Извлекает абсолютные ссылки на товары двумя существующими селекторами."""
         links = []
 
         for link in soup.select("div.cnc-product-categories-mob-card__header a[href]"):

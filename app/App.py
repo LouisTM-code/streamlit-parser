@@ -1,21 +1,20 @@
-"""Streamlit script entrypoint.
+"""Модуль App.
 
-Role and responsibility:
-    - start Streamlit UI runtime for parser application.
+Роль и ответственность:
+    - предоставляет публичные элементы этого слоя.
 
-Boundaries:
-    - does not compose parser internals;
-    - does not implement parsing workflows.
+Границы:
+    - не реализует ответственность соседних слоёв.
 
-Interactions:
-    - delegates startup to ``web_ui.run_streamlit_ui``.
+Взаимодействие с другими ролями:
+    - используется через импорт другими модулями проекта.
 """
 
 from web_ui import run_streamlit_ui
 
 
 def main() -> None:
-    """Launch Streamlit UI entrypoint."""
+    """Выполняет операцию роли «main»."""
     run_streamlit_ui()
 
 
