@@ -208,6 +208,7 @@ share/python-wheels/
 *.egg-info/
 .installed.cfg
 *.egg
+MANIFEST
 
 # PyInstaller
 #  Usually these files are written by a python script from a template
@@ -389,3 +390,7 @@ results*.xlsx
 test_results
 tempdocs
 requirements_*.txt
+Unindex*
+MVP docs/Новый текстовый документ.txt
+tools/*
+.local
