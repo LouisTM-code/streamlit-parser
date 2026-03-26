@@ -11,7 +11,7 @@ from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 import pandas as pd
 from bs4 import BeautifulSoup, Tag
 
-from Parse import WebParser
+from legacy.Parse import WebParser
 
 __all__ = ["ProductListParser"]
 

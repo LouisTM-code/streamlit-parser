@@ -1,4 +1,4 @@
-from Parse import WebParser
+from legacy.Parse import WebParser
 from web_ui import StreamlitUI
 
 def main():

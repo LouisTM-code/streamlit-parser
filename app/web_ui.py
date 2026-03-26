@@ -6,8 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 import pandas as pd
 import streamlit as st
 
-from Parse import WebParser
-from product_list_parser import ProductListParser
+from legacy.Parse import WebParser
+from legacy.product_list_parser import ProductListParser
 
 
 class StreamlitUI:
