@@ -4,6 +4,7 @@ from unittest.mock import patch
 
 from bs4 import BeautifulSoup
 
+from application.dto.tracing import ItemErrorEvent, ProgressEvent
 from application.use_cases.parse_category_list import ParseCategoryListUseCase
 from application.use_cases.parse_products import ParseProductsUseCase
 from parser_domain.infrastructure.parsers.category_page_parser import CategoryPageParser
@@ -15,7 +16,6 @@ from parser_domain.types import (
     CategoryListParseResult,
     CategoryPageRef,
     CategoryParseStats,
-    ItemErrorInfo,
     ParseCategoryListCommand,
     ParseProductsCommand,
     ParserMode,
@@ -23,7 +23,6 @@ from parser_domain.types import (
     ProductCardFull,
     ProductDetails,
     ProductsParseResult,
-    ProgressUpdate,
 )
 
 
@@ -62,8 +61,8 @@ def _clean_price(value: str) -> str:
 
 def test_parse_products_use_case_returns_dataclass_and_callbacks() -> None:
     use_case = ParseProductsUseCase(parser=StubWebParser())
-    updates: list[ProgressUpdate] = []
-    errors: list[ItemErrorInfo] = []
+    updates: list[ProgressEvent] = []
+    errors: list[ItemErrorEvent] = []
 
     result = use_case.execute(
         command=ParseProductsCommand(
@@ -77,9 +76,9 @@ def test_parse_products_use_case_returns_dataclass_and_callbacks() -> None:
     assert isinstance(result, ProductsParseResult)
     assert result.output_filename == "out.xlsx"
     assert not result.dataframe.empty
-    assert isinstance(updates[0], ProgressUpdate)
-    assert isinstance(errors[0], ItemErrorInfo)
-    assert errors[0].item_ref == "https://example.com/p2"
+    assert isinstance(updates[0], ProgressEvent)
+    assert isinstance(errors[0], ItemErrorEvent)
+    assert "https://example.com/p2" in errors[0].error
 
 
 def test_category_page_parser_returns_card_dataclasses() -> None:

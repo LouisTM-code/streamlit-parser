@@ -19,19 +19,18 @@ from collections.abc import Callable
 
 import pandas as pd
 
-from parser_domain.types import (
-    ItemErrorInfo,
-    ParseProductsCommand,
-    ProductDetails,
-    ProductsParseResult,
-    ProgressUpdate,
+from application.dto.tracing import (
+    ErrorCallback,
+    ItemErrorEvent,
+    ProgressCallback,
+    ProgressEvent,
+    StatsCallback,
+    StatsEvent,
 )
+from parser_domain.types import ParseProductsCommand, ProductDetails, ProductsParseResult
 from parser_domain.web_parser import WebParser
 
-ProgressCallback = Callable[[ProgressUpdate], None]
-StatsCallback = Callable[[int, int], None]
 ProcessPageCallback = Callable[[str, Callable[[str], object]], object]
-ErrorCallback = Callable[[ItemErrorInfo], None]
 
 
 class ParseProductsUseCase:
@@ -63,13 +62,13 @@ class ParseProductsUseCase:
         on_page_request: ProcessPageCallback | None = None,
         on_item_error: ErrorCallback | None = None,
     ) -> ProductsParseResult:
-        """Выполняет парсинг товаров и возвращает типизированный `ProductsParseResult`."""
+        """Выполняет парсинг товаров и публикует типизированные callback-события."""
         links = self._parser.iter_category_product_links(command.category_url)
         if not links:
             raise Exception("Ссылки на товары не найдены")
 
         if on_progress:
-            on_progress(ProgressUpdate(percent=15, message="Поиск ссылок на товары…"))
+            on_progress(ProgressEvent(progress=15, status="Поиск ссылок на товары…"))
 
         total = len(links)
         products: list[dict[str, str]] = []
@@ -79,15 +78,13 @@ class ParseProductsUseCase:
                 if on_progress:
                     progress = 15 + int(70 * (idx / total))
                     on_progress(
-                        ProgressUpdate(
-                            percent=progress,
-                            message=f"Обработка товара {idx}/{total}",
-                            current=idx,
-                            total=total,
+                        ProgressEvent(
+                            progress=progress,
+                            status=f"Обработка товара {idx}/{total}",
                         )
                     )
                 if on_stats:
-                    on_stats(total, idx)
+                    on_stats(StatsEvent(total=total, processed=idx))
                 if on_page_request:
                     product_page = on_page_request(link, self._parser.get_page)
                 else:
@@ -100,16 +97,14 @@ class ParseProductsUseCase:
             except Exception as ex:  # noqa: BLE001
                 if on_item_error:
                     on_item_error(
-                        ItemErrorInfo(
-                            item_index=idx,
-                            item_ref=link,
-                            error_type=type(ex).__name__,
-                            message=str(ex),
+                        ItemErrorEvent(
+                            index=idx,
+                            error=f"({link}): {type(ex).__name__} - {ex}",
                         )
                     )
 
         if on_progress:
-            on_progress(ProgressUpdate(percent=95, message="Формирование отчёта…"))
+            on_progress(ProgressEvent(progress=95, status="Формирование отчёта…"))
 
         frame = pd.DataFrame(products)
         if frame.empty:
