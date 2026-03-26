@@ -8,6 +8,8 @@ from typing import Mapping
 from bs4 import BeautifulSoup
 
 from parser_domain.infrastructure.exporters.excel_exporter import ExcelExporter
+from parser_domain.infrastructure.logging.trace_context import TraceContext
+from parser_domain.infrastructure.logging.tracing_logger import TracingLogger
 from parser_domain.infrastructure.parsers.card_extractors.v1 import CardExtractorV1
 from parser_domain.infrastructure.parsers.card_extractors.v2 import CardExtractorV2
 from parser_domain.infrastructure.parsers.category_page_parser import CategoryPageParser
@@ -49,7 +51,7 @@ class ProductListParser:
         mode: ParserMode = ParserMode.BASIC,
     ) -> None:
         """Подготавливает режим, ссылки, парсеры карточек и внутренние буферы результата."""
-        self.logger: logging.Logger = self._configure_logger()
+        self.logger = TracingLogger(self._configure_logger())
         self.parser: WebParser = base_parser or WebParser()
         self.output_file: str = output_file
         self.mode: ParserMode = mode
@@ -57,7 +59,10 @@ class ProductListParser:
         self._url_normalizer = URLNormalizer()
         self.links: list[str] = self._url_normalizer.normalize_links(links)
         self.links = self._url_normalizer.validate_links(self.links)
-        self.logger.info("Принято %d ссылок, режим: %s", len(self.links), self.mode.value)
+        self.logger.info(
+            f"Принято {len(self.links)} ссылок, режим: {self.mode.value}",
+            TraceContext(operation="init", parser_mode=self.mode.value),
+        )
 
         self._sheet_name_counts: dict[str, int] = {}
         self._sheet_data: OrderedDict[str, list[dict[str, str]]] = OrderedDict()
@@ -170,9 +175,13 @@ class ProductListParser:
                     rows = [self._card_to_row(item) for item in products]
 
                 self.logger.info(
-                    "  └— товаров на странице %d: %d",
-                    page.page_index,
-                    len(rows),
+                    f"  └— товаров на странице {page.page_index}: {len(rows)}",
+                    TraceContext(
+                        operation="parse_category_page",
+                        url=base_url,
+                        page=page.page_index,
+                        parser_mode=self.mode.value,
+                    ),
                 )
                 category_rows.extend(rows)
                 all_products.extend(rows)
@@ -195,12 +204,13 @@ class ProductListParser:
             parser_mode=self.mode,
         )
         self.logger.info(
-            "Итого | режим: %s | категорий: %d | успех: %d | ошибок: %d | товаров: %d",
-            stats.parser_mode.value,
-            stats.total_categories,
-            stats.success_categories,
-            stats.failed_categories,
-            stats.total_products,
+            (
+                "Итого | режим: "
+                f"{stats.parser_mode.value} | категорий: {stats.total_categories} | "
+                f"успех: {stats.success_categories} | ошибок: {stats.failed_categories} | "
+                f"товаров: {stats.total_products}"
+            ),
+            TraceContext(operation="run_summary", parser_mode=stats.parser_mode.value),
         )
         return all_products, stats
 
