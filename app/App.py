@@ -1,20 +1,23 @@
-from legacy.Parse import WebParser
-from web_ui import StreamlitUI
+"""Streamlit script entrypoint.
 
-def main():
-    parser = WebParser()
-    
-    is_streamlit_running()
-    ui = StreamlitUI(parser)
-    ui.run()
+Role and responsibility:
+    - start Streamlit UI runtime for parser application.
 
-def is_streamlit_running() -> bool:
-    """Проверка запущен ли Streamlit"""
-    try:
-        from streamlit.runtime.scriptrunner import get_script_run_ctx
-        return get_script_run_ctx() is not None
-    except ImportError:
-        return False
+Boundaries:
+    - does not compose parser internals;
+    - does not implement parsing workflows.
+
+Interactions:
+    - delegates startup to ``web_ui.run_streamlit_ui``.
+"""
+
+from web_ui import run_streamlit_ui
+
+
+def main() -> None:
+    """Launch Streamlit UI entrypoint."""
+    run_streamlit_ui()
+
 
 if __name__ == "__main__":
     main()
